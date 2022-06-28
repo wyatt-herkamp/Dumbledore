@@ -3,6 +3,7 @@ use std::any::{TypeId};
 
 
 use std::{io, mem};
+use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 
 
@@ -49,6 +50,7 @@ pub struct Archetype {
     pub(crate) home_ptr: NonNull<u8>,
 }
 
+
 impl Debug for Archetype {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Archetype {{  components: {:?}, entities: {:?}, data: {:?}, entities_len: {:?} }}", self.components, self.entities, self.data.len(), self.entities_len)
@@ -56,8 +58,8 @@ impl Debug for Archetype {
 }
 
 impl Archetype {
-    pub unsafe fn add_entity<Data>(&mut self, entity_id: u32, data: Data) -> u32
-        where Data: IntoIterator<Item=(ComponentInfo, NonNull<u8>)> {
+    pub unsafe fn add_entity<'data, Data>(&mut self, entity_id: u32, data: Data) -> u32
+        where Data: Iterator<Item=&'data (ComponentInfo, NonNull<u8>)> {
         let id = self.entities_len.fetch_add(1, Ordering::Relaxed);
         self.entities[id as usize] = entity_id;
         for (ty, raw_pointer) in data {
@@ -161,7 +163,7 @@ impl Archetype {
         let map = components.iter().enumerate().map(|(index, v)| {
             let my_offset = offset;
             offset += v.layout.size();
-            (v.id, (my_offset, index as u32, ))
+            (v.id.clone(), (my_offset, index as u32, ))
         });
         //
         Self {
@@ -214,6 +216,11 @@ impl Archetype {
                 });
             }
         }
+        unsafe{
+            dealloc(self.home_ptr.as_ptr(), Layout::from_size_align_unchecked(comp_size * self.entities.len(), 8));
+        }
+        self.home_ptr = NonNull::new(ptr).unwrap();
+
         self.data = new_data.into_boxed_slice();
         Ok(())
     }
@@ -254,7 +261,6 @@ pub struct EntityData {
 
 #[cfg(test)]
 pub mod test {
-    
     use std::ptr::NonNull;
     use crate::archetypes::arche::Archetype;
     use crate::archetypes::ComponentInfo;
@@ -263,6 +269,7 @@ pub mod test {
     #[derive(Debug)]
     pub struct TestComponent {
         pub value: u32,
+        pub string: String,
     }
 
     #[test]
@@ -271,6 +278,7 @@ pub mod test {
         let mut archetype = Archetype::new(info, 32);
         let component = &mut TestComponent {
             value: 1,
+            string: "".to_string()
         } as *mut TestComponent;
         for _i in 0..32 {
             let i = unsafe {
@@ -282,7 +290,7 @@ pub mod test {
                 let x2 = (ComponentInfo::new::<u32>(), NonNull::new_unchecked(ptr.cast()));
                 let mut entity = vec![x, x1, x2];
                 entity.sort_by_key(|c| c.0.id);
-                archetype.add_entity(2, entity.into_iter())
+                archetype.add_entity(2, entity.iter())
             };
             let mut result = archetype.get_comp_mut::<String>(i).unwrap().unwrap();
             println!("{:?}", result.as_mut());
@@ -303,12 +311,19 @@ pub mod test {
                 let x2 = (ComponentInfo::new::<u32>(), NonNull::new_unchecked(ptr.cast()));
                 let mut entity = vec![x, x1, x2];
                 entity.sort_by_key(|c| c.0.id);
-                archetype.add_entity(2, entity.into_iter())
+                archetype.add_entity(2, entity.iter())
             };
             let mut result = archetype.get_comp_mut::<String>(i).unwrap().unwrap();
-            println!("{:?}", result.as_mut());
-            let result = archetype.get_comp::<TestComponent>(i).unwrap().unwrap();
             println!("{:?}", result.as_ref());
+            drop(result);
+            let result = archetype.get_comp::<String>(i).unwrap().unwrap();
+            println!("{:?}", result.as_ref());
+            let result = archetype.get_comp_mut::<TestComponent>(i).unwrap().unwrap();
+            println!("{:?}", result.as_ref());
+            result.component.value = 55;
+            result.component.string = "Test".to_string();
+            drop(result);
+
             let result = archetype.get_comp::<u32>(i).unwrap().unwrap();
             println!("{:?}", result.as_ref());
         }

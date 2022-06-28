@@ -1,5 +1,4 @@
-mod set;
-mod arche;
+pub mod arche;
 
 use std::alloc::Layout;
 use std::any::TypeId;
