@@ -3,23 +3,67 @@ use std::any::{TypeId};
 
 
 use std::{io, mem};
+use std::cell::UnsafeCell;
 use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 
 
 use std::ptr::{copy_nonoverlapping, NonNull};
 use std::sync::{Arc};
-use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use crate::archetypes::ComponentInfo;
 use crate::component::Component;
 use crate::component_ref::{ComponentRef, MutComponentRef};
 use crate::sets::TypeIdSet;
 
+/// Contains a Slice of AtomicU8s being the RwLock status of each component within the entity.
+///
+/// Contains a pointer to the actual component data. Data is offset by the size of the component.
+#[derive(Debug)]
+pub struct EntityData {
+    pub(crate) inner_ptrs: NonNull<u8>,
+    // The EntityID
+    pub(crate) entity_id: AtomicU32,
+    // If true the entire entity is locked.
+    pub(crate) locked: AtomicU8,
+    /// Component Data Locks
+    pub(crate) anti_racey_bytes: Box<[Arc<AtomicU8>]>,
+}
+
+impl EntityData {
+    pub fn is_locked(&self) -> bool {
+        self.locked.load(Ordering::Relaxed) == 2
+    }
+    pub fn is_locking(&self) -> bool {
+        self.locked.load(Ordering::Relaxed) == 1
+    }
+    pub fn is_unlocked(&self) -> bool {
+        self.locked.load(Ordering::Relaxed) == 0
+    }
+    pub fn mark_locking(&self) {
+        self.locked.store(1, Ordering::Relaxed);
+    }
+    /// Only Will Lock if all components are unlocked.
+    pub fn try_mark_locked(&self) -> bool {
+        for x in self.anti_racey_bytes.iter() {
+            if x.load(Ordering::Relaxed) != 0 {
+                return false;
+            }
+        }
+        self.locked.store(2, Ordering::Relaxed);
+        true
+    }
+    pub fn mark_unlocked(&self) {
+        self.locked.store(0, Ordering::Relaxed);
+    }
+}
+
 
 ///
+/// This is a Wrapper around a Arc<ArchetypeInner>
 ///
 ///
-/// Memory allocation for Components.
+/// Memory is layout as follows:
 /// ```no_lang
 /// | -------------------------- Entity A ------------------------- |
 /// | --- Component A --- | -- Component B -- | --- Component C --- |
@@ -31,40 +75,55 @@ use crate::sets::TypeIdSet;
 /// ```
 ///
 ///
-/// A Slice of AtomicU8s is used to represent the RWLock status of each component within the entity.
-///
-/// Data will be sorted by the TypeID
-///
-/// mutability is required to be able to add a new entity because it could result in a reallocation of the memory.
-pub struct Archetype {
-    /// The component types in this archetype.
-    pub(crate) component_offsets: TypeIdSet<(usize, u32)>,
-    pub(crate) components: Vec<ComponentInfo>,
-    /// Index --> Entity ID within the data array
-    pub(crate) entities: Box<[u32]>,
-    /// The data for each entity
-    pub(crate) data: Box<[EntityData]>,
-    /// The number of entities in this archetype.
-    pub(crate) entities_len: AtomicU32,
+pub struct Archetype(pub(crate) Arc<ArchetypeInner>);
 
-    pub(crate) home_ptr: NonNull<u8>,
-}
-
-
-impl Debug for Archetype {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Archetype {{  components: {:?}, entities: {:?}, data: {:?}, entities_len: {:?} }}", self.components, self.entities, self.data.len(), self.entities_len)
-    }
-}
 
 impl Archetype {
-    pub unsafe fn add_entity<'data, Data>(&mut self, entity_id: u32, data: Data) -> u32
+    /// Attempts to release the internal ArchetypeInner then increase the size.
+    ///
+    /// Should be called after World::take_archetype(). This allows the World to stop trying to access the Archetype.
+    ///
+    /// # Returns
+    /// Ok(Self) if the internal arc was able to be released.
+    /// Err(Self) if the internal arc was unable to be released.
+    pub fn resize(self, increase_by: Option<usize>) -> Result<Self, Self> {
+        let mut safe = true;
+        for x in self.0.entity_data.iter() {
+            x.mark_locking();
+            if !x.try_mark_locked() {
+                safe = false;
+            }
+        }
+        if !safe {
+            // The entity needs to be completely locked before it can be resized.
+            return Err(self);
+        }
+        let result = Arc::try_unwrap(self.0);
+        match result {
+            Ok(value) => {
+                let i = increase_by.unwrap_or(value.entity_data.len());
+                let inner = ArchetypeInner::new_from_old(value, i);
+                for x in inner.entity_data.iter() {
+                    x.mark_unlocked();
+                }
+                Ok(Archetype(Arc::new(inner)))
+            }
+            Err(error) => {
+                Err(Archetype(error))
+            }
+        }
+    }
+    /// Adds an Entity to the Archetype.
+    ///
+    /// # Returns
+    /// The index for the Entity in the Archetype.
+    pub unsafe fn add_entity<'data, Data>(&self, entity_id: u32, data: Data) -> u32
         where Data: Iterator<Item=&'data (ComponentInfo, NonNull<u8>)> {
-        let id = self.entities_len.fetch_add(1, Ordering::Relaxed);
-        self.entities[id as usize] = entity_id;
+        let id = self.0.entities_len.fetch_add(1, Ordering::Relaxed);
         for (ty, raw_pointer) in data {
-            let data = &self.data[id as usize];
-            let (offset, _index) = *self.component_offsets.get(&ty.id).ok_or_else(|| {
+            let data = &self.0.entity_data[id as usize];
+            data.entity_id.store(entity_id, Ordering::Relaxed);
+            let (offset, _index) = *self.0.component_offsets.get(&ty.id).ok_or_else(|| {
                 panic!("Tried to add a component to an archetype that does not contain it {:?}", ty)
             }).unwrap();
 
@@ -73,20 +132,22 @@ impl Archetype {
         }
         id
     }
-    pub fn get_comp_mut<T: Component>(&self, entity_index: u32) -> Result<Option<MutComponentRef<T>>, io::Error> {
-        let inner = self;
+    pub fn get_comp_mut<T: Component>(&self, entity_index: u32) -> Result<Option<MutComponentRef<T>>, ()> {
+        let inner = &self.0;
 
         if entity_index >= inner.entities_len.load(Ordering::Relaxed) {
             return Ok(None);
         }
         let comp_offset = inner.component_offsets.get(&TypeId::of::<T>());
         if let Some((comp_offset, index)) = comp_offset {
-            let data = &inner.data[entity_index as usize];
-
+            let data = &inner.entity_data[entity_index as usize];
+            if !data.is_unlocked() {
+                return Err(());
+            }
             let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
             let i = anti_racey_byte.load(Ordering::Acquire);
             if i > 0 {
-                Err(io::Error::new(io::ErrorKind::Other, "Component is already locked"))
+                return Err(());
             } else {
                 let ptr = unsafe {
                     &mut *data.inner_ptrs.as_ptr().add(*comp_offset).cast::<T>()
@@ -103,15 +164,18 @@ impl Archetype {
     }
 
 
-    pub fn get_comp<T: Component>(&self, entity_index: u32) -> Result<Option<ComponentRef<T>>, io::Error> {
-        let inner = self;
+    pub fn get_comp<T: Component>(&self, entity_index: u32) -> Result<Option<ComponentRef<T>>, ()> {
+        let inner = &self.0;
 
         if entity_index >= inner.entities_len.load(Ordering::Relaxed) {
             return Ok(None);
         }
         let comp_offset = inner.component_offsets.get(&TypeId::of::<T>());
         if let Some((comp_offset, index)) = comp_offset {
-            let data = &inner.data[entity_index as usize];
+            let data = &inner.entity_data[entity_index as usize];
+            if !data.is_unlocked() {
+                return Err(());
+            }
             let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
             let i = anti_racey_byte.load(Ordering::Acquire);
             /// If it is at 254 it has too many readers. 255 it is being written to.
@@ -135,11 +199,22 @@ impl Archetype {
 }
 
 
-impl Archetype {
+pub(crate) struct ArchetypeInner {
+    /// The component types in this archetype.
+    pub(crate) component_offsets: TypeIdSet<(usize, u32)>,
+
+    pub(crate) components: Box<[ComponentInfo]>,
+    /// The data for each entity
+    pub(crate) entity_data: Box<[EntityData]>,
+    /// The number of entities in this archetype.
+    pub(crate) entities_len: AtomicU32,
+
+    pub(crate) home_ptr: NonNull<u8>,
+
+}
+
+impl ArchetypeInner {
     pub(crate) fn new(mut components: Vec<ComponentInfo>, entity_start_size: usize) -> Self {
-        if entity_start_size % 2 != 0 {
-            panic!("entity_start_size must be a multiple of 2");
-        }
         components.sort_unstable_by_key(|c| c.id);
         let total_size = components.iter().map(|c| c.layout.size()).sum::<usize>();
         let data = if entity_start_size > 0 {
@@ -151,6 +226,8 @@ impl Archetype {
                 unsafe {
                     data.push(EntityData {
                         inner_ptrs: NonNull::new_unchecked(ptr.add(total_size * entity_index)),
+                        entity_id: AtomicU32::new(0),
+                        locked: AtomicU8::new(0),
                         anti_racey_bytes: components.iter().map(|_| Arc::new(AtomicU8::new(0))).collect(),
                     });
                 }
@@ -168,70 +245,62 @@ impl Archetype {
         //
         Self {
             component_offsets: TypeIdSet::new(map),
-            components,
-            entities: vec![0; entity_start_size as usize].into_boxed_slice(),
-            data: data.0.into_boxed_slice(),
+            components: components.into_boxed_slice(),
+            entity_data: data.0.into_boxed_slice(),
             entities_len: AtomicU32::new(0),
             home_ptr: data.1,
         }
     }
-    pub fn requires_reallocation(&self) -> bool {
-        self.entities.len() == self.entities_len.load(Ordering::Relaxed) as usize
-    }
-
-    pub fn grow(&mut self, extend_by: u32) -> Result<(), ()> {
-        if extend_by % 2 != 0 {
-            panic!("entity_start_size must be a multiple of 2");
-        }
-        //TODO ensure that all entities are locked before growing.
-        let new_size = self.entities.len() + extend_by as usize;
-        let mut new_entities = vec![0; new_size].into_boxed_slice();
-        self.entities.iter().enumerate().for_each(|(index, v)| {
-            new_entities[index] = *v;
-        });
-        self.entities = new_entities;
-
-        let mut new_data = Vec::with_capacity(new_size);
-        let comp_size = self.components.iter().map(|c| c.layout.size()).sum::<usize>();
+    /// Clones the data from the old archetype into the new one.
+    /// Does not deallocate the old one. That will be done by Drop once it goes out of scope
+    pub fn new_from_old(mut old: ArchetypeInner, size_increase: usize) -> Self {
+        let mut old_entities = mem::take(&mut old.entity_data);
+        let total_size = old.components.iter().map(|c| c.layout.size()).sum::<usize>();
+        let new_size = old_entities.len() + size_increase;
         let ptr = unsafe {
-            alloc(Layout::from_size_align_unchecked(comp_size * new_size, 8))
+            alloc(Layout::from_size_align_unchecked(total_size * new_size, 8))
         };
-
-        for (index, old) in self.data.iter_mut().enumerate() {
-            let data = mem::take(&mut old.anti_racey_bytes);
+        let mut new_data = Vec::with_capacity(new_size);
+        for (index, data) in old_entities.iter_mut().enumerate() {
             unsafe {
-                let new_index = ptr.add(comp_size * index);
-                copy_nonoverlapping(old.inner_ptrs.as_ptr(), new_index.cast(), comp_size);
+                let new_pointer = ptr.add(total_size * index);
+                copy_nonoverlapping(data.inner_ptrs.as_ptr(), new_pointer, total_size);
                 new_data.push(EntityData {
-                    inner_ptrs: NonNull::new_unchecked(new_index),
-                    anti_racey_bytes: data,
+                    inner_ptrs: NonNull::new_unchecked(new_pointer),
+                    entity_id: mem::take(&mut data.entity_id),
+                    locked: AtomicU8::new(0),
+                    anti_racey_bytes: mem::take(&mut data.anti_racey_bytes),
                 });
             }
         }
-        for index in self.data.iter_mut().len()..new_size {
+        for i in old_entities.len()..new_size {
             unsafe {
+                let new_pointer = ptr.add(total_size * i);
                 new_data.push(EntityData {
-                    inner_ptrs: NonNull::new_unchecked(ptr.add(comp_size * index)),
-                    anti_racey_bytes: self.components.iter().map(|_| Arc::new(AtomicU8::new(0))).collect(),
+                    inner_ptrs: NonNull::new_unchecked(new_pointer),
+                    entity_id: AtomicU32::new(0),
+                    locked: AtomicU8::new(0),
+                    anti_racey_bytes: old.components.iter().map(|_| Arc::new(AtomicU8::new(0))).collect(),
                 });
             }
         }
-        unsafe{
-            dealloc(self.home_ptr.as_ptr(), Layout::from_size_align_unchecked(comp_size * self.entities.len(), 8));
-        }
-        self.home_ptr = NonNull::new(ptr).unwrap();
 
-        self.data = new_data.into_boxed_slice();
-        Ok(())
+        Self {
+            component_offsets: old.component_offsets.clone(),
+            components: old.components.clone(),
+            entity_data: new_data.into_boxed_slice(),
+            entities_len: mem::take(&mut old.entities_len),
+            home_ptr: NonNull::new(ptr).unwrap(),
+        }
     }
 }
 
-impl Drop for Archetype {
+impl Drop for ArchetypeInner {
     fn drop(&mut self) {
         let i = self.components.iter().map(|c| c.layout.size()).sum::<usize>();
         let entities_len = self.entities_len.load(Ordering::Relaxed);
 
-        for (index, data) in self.data.iter_mut().enumerate() {
+        for (index, data) in self.entity_data.iter_mut().enumerate() {
             if index >= entities_len as usize {
                 break;
             }
@@ -243,92 +312,7 @@ impl Drop for Archetype {
             }
         }
         unsafe {
-            dealloc(self.home_ptr.as_ptr(), Layout::from_size_align_unchecked(i * self.data.iter_mut().len(), 8));
+            dealloc(self.home_ptr.as_ptr(), Layout::from_size_align_unchecked(i * self.entity_data.iter_mut().len(), 8));
         }
-    }
-}
-
-
-/// Contains a Slice of AtomicU8s being the RwLock status of each component within the entity.
-///
-/// Contains a pointer to the actual component data. Data is offset by the size of the component.
-#[derive(Debug)]
-pub struct EntityData {
-    pub(crate) inner_ptrs: NonNull<u8>,
-
-    pub(crate) anti_racey_bytes: Box<[Arc<AtomicU8>]>,
-}
-
-#[cfg(test)]
-pub mod test {
-    use std::ptr::NonNull;
-    use crate::archetypes::arche::Archetype;
-    use crate::archetypes::ComponentInfo;
-
-
-    #[derive(Debug)]
-    pub struct TestComponent {
-        pub value: u32,
-        pub string: String,
-    }
-
-    #[test]
-    pub fn test() {
-        let info = vec![ComponentInfo::new::<TestComponent>(), ComponentInfo::new::<String>(), ComponentInfo::new::<u32>()];
-        let mut archetype = Archetype::new(info, 32);
-        let component = &mut TestComponent {
-            value: 1,
-            string: "".to_string()
-        } as *mut TestComponent;
-        for _i in 0..32 {
-            let i = unsafe {
-                let mut y = 10u32;
-
-                let x = (ComponentInfo::new::<String>(), NonNull::new_unchecked((&mut "Test".to_string() as *mut String) as *mut u8));
-                let x1 = (ComponentInfo::new::<TestComponent>(), NonNull::new_unchecked(component as *mut u8));
-                let ptr = &mut y as *mut u32;
-                let x2 = (ComponentInfo::new::<u32>(), NonNull::new_unchecked(ptr.cast()));
-                let mut entity = vec![x, x1, x2];
-                entity.sort_by_key(|c| c.0.id);
-                archetype.add_entity(2, entity.iter())
-            };
-            let mut result = archetype.get_comp_mut::<String>(i).unwrap().unwrap();
-            println!("{:?}", result.as_mut());
-            let result = archetype.get_comp::<TestComponent>(i).unwrap().unwrap();
-            println!("{:?}", result.as_ref());
-            let result = archetype.get_comp::<u32>(i).unwrap().unwrap();
-            println!("{:?}", result.as_ref());
-        }
-        archetype.grow(32).unwrap();
-
-        for _i in 0..32 {
-            let i = unsafe {
-                let mut y = 10u32;
-
-                let x = (ComponentInfo::new::<String>(), NonNull::new_unchecked((&mut "Test".to_string() as *mut String) as *mut u8));
-                let x1 = (ComponentInfo::new::<TestComponent>(), NonNull::new_unchecked(component as *mut u8));
-                let ptr = &mut y as *mut u32;
-                let x2 = (ComponentInfo::new::<u32>(), NonNull::new_unchecked(ptr.cast()));
-                let mut entity = vec![x, x1, x2];
-                entity.sort_by_key(|c| c.0.id);
-                archetype.add_entity(2, entity.iter())
-            };
-            let mut result = archetype.get_comp_mut::<String>(i).unwrap().unwrap();
-            println!("{:?}", result.as_ref());
-            drop(result);
-            let result = archetype.get_comp::<String>(i).unwrap().unwrap();
-            println!("{:?}", result.as_ref());
-            let result = archetype.get_comp_mut::<TestComponent>(i).unwrap().unwrap();
-            println!("{:?}", result.as_ref());
-            result.component.value = 55;
-            result.component.string = "Test".to_string();
-            drop(result);
-
-            let result = archetype.get_comp::<u32>(i).unwrap().unwrap();
-            println!("{:?}", result.as_ref());
-        }
-        println!("{:?}", archetype);
-        drop(archetype);
-        println!("Hey");
     }
 }

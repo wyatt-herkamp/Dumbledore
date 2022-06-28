@@ -17,7 +17,7 @@ pub trait Bundle {
     fn into_component_ptrs( self) -> Box<[(ComponentInfo, NonNull<u8>)]>
         where Self: Sized;
     /// Should be ordered Largest to Smallest
-    fn component_info() -> Box<[ComponentInfo]>
+    fn component_info() -> Vec<ComponentInfo>
         where Self: Sized;
     /// Should be a unique identifier for this Bundle.
     /// this can be used to tell the World to query a specific Archetype
@@ -31,8 +31,8 @@ impl<C: Component> Bundle for C {
         Box::new([(C::component_info(), NonNull::new(c as *mut u8).unwrap())])
     }
 
-    fn component_info() -> Box<[ComponentInfo]> where Self: Sized {
-        Box::new([C::component_info()])
+    fn component_info() -> Vec<ComponentInfo> where Self: Sized {
+        vec![C::component_info()]
     }
 
     fn archetype_id() -> u32 where Self: Sized {

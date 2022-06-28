@@ -4,7 +4,7 @@ use std::alloc::Layout;
 use std::any::TypeId;
 use std::cmp::Ordering;
 use crate::component::Component;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ComponentInfo {
     pub(crate) layout: Layout,
     pub(crate) id: TypeId,

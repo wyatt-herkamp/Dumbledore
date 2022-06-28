@@ -1,8 +1,8 @@
 use std::any::TypeId;
+#[derive(Debug, Clone)]
+pub(crate) struct TypeIdSet<V: Clone>(pub(crate) Box<[(TypeId, V)]>);
 
-pub(crate) struct TypeIdSet<V>(pub(crate) Box<[(TypeId, V)]>);
-
-impl<V> TypeIdSet<V> {
+impl<V: Clone> TypeIdSet<V> {
     pub fn new<Content>(contents: Content) -> Self
         where Content: Iterator<Item=(TypeId, V)> {
         let mut contents = contents.collect::<Box<[_]>>();
