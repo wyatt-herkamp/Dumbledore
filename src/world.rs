@@ -22,6 +22,7 @@ pub enum WorldError {
     TooManyEntitiesInWorld,
     /// The Archetype needs to be reallocated
     TooManyEntitiesInArchetype,
+    /// The reference to the world is now invalid. You will need to go get a new reference to the world
     EntitySetLocked,
 }
 
@@ -47,12 +48,12 @@ impl World {
     }
     /// Increases the amount of entities in the world copying the old information.
     ///
-    /// The old Arc is still valid, however, will no longer receive updates.
+    /// The old Arc is still valid, however, will no accept updates or return data.
     ///
     /// It is also marked at locked preventing updates to it
     pub fn increase_entities(&mut self, increase: Option<u32>) -> Result<(), WorldError> {
         self.entities.0.locked.store(true, atomic::Ordering::Relaxed);
-        let inner = self.entities.0.reallocate(increase.unwrap_or(self.entities.0.entities.len()as u32));
+        let inner = self.entities.0.reallocate(increase.unwrap_or(self.entities.0.entities.len() as u32));
         self.entities = EntitySet(Arc::new(inner));
         Ok(())
     }

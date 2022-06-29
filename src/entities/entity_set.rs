@@ -71,11 +71,17 @@ impl EntitySet {
         entity
     }
     pub fn push_location(&self, entity: &Entity, location: EntityLocation) {
+        if self.is_locked() {
+            panic!("EntitySet is locked!");
+        }
         let i = entity.id as usize;
         let mut guard = self.0.entities[i].write().unwrap();
         guard.location = location;
     }
     pub fn free(&self, entity: Entity) {
+        if self.is_locked() {
+            panic!("EntitySet is locked!");
+        }
         let i = entity.id as usize;
         let mut guard = self.0.entities[i].write().unwrap();
         guard.location = EntityLocation::default();
@@ -83,6 +89,9 @@ impl EntitySet {
         self.0.free_list.write().unwrap().push(i);
     }
     pub fn get_location(&self, entity: u32) -> Option<EntityLocation> {
+        if self.is_locked() {
+            panic!("EntitySet is locked!");
+        }
         if entity as usize >= self.0.entities.len() {
             return None;
         }
