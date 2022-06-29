@@ -1,3 +1,4 @@
+use std::thread;
 use std::time::Instant;
 use crate::entities::entity::Entity;
 use crate::world::WorldError;
@@ -191,5 +192,51 @@ pub fn random_delete_an_add() {
             println!(" {:?}", entity );
 
         };
+    }
+}
+#[test]
+pub fn thread_tests(){
+    let mut world = world::World::new(256);
+    world.add_archetype::<tests::Player>(256);
+    for i in 0..1024 {
+        if !world.entities.entities_left() {
+            world.increase_entities(Some(256)).unwrap();
+        }
+        if let Err(error) = world
+            .add_entity(tests::Player {
+                position: tests::Position { x: 0.0, y: 0.0 },
+                health: tests::Health {
+                    health: 100.0,
+                    food: 100.0,
+                },
+            }) {
+            match error {
+                WorldError::TooManyEntitiesInArchetype => {
+                    let option = world.take_archetype::<tests::Player>().unwrap();
+                    let archetype = option.resize(Some(256)).unwrap();
+                    world.push_archetype::<tests::Player>(archetype);
+                }
+                _ => {}
+            }
+        }
+    }
+
+
+    for i in 0..10 {
+        let world_one = world.clone();
+        thread::spawn(||{
+            let world = world_one;
+            let player = world.archetypes.get(&0).unwrap();
+
+            for _ in 0..2048 {
+                for i in 0..255 {
+                    let entity = world.entities.get_location(i).unwrap();
+                    let index = entity.index;
+                    let option = player
+                        .get_comp_mut::<(tests::Position, tests::Health)>(index).unwrap();
+                    println!("{:?}", option);
+                }
+            }
+        });
     }
 }

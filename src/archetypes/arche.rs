@@ -11,7 +11,7 @@ use crate::component::{Component, ComponentLookup};
 use crate::component_ref::{ComponentRef, MutComponentRef};
 use crate::sets::TypeIdSet;
 use std::ptr::{copy_nonoverlapping, NonNull};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Contains a Slice of AtomicU8s being the RwLock status of each component within the entity.
@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 /// Contains a pointer to the actual component data. Data is offset by the size of the component.
 #[derive(Debug)]
 pub(crate) struct EntityData {
-    pub(crate) inner_ptrs: NonNull<u8>,
+    pub(crate) inner_ptrs: AtomicPtr<u8>,
     // The EntityID
     pub(crate) entity_id: AtomicU32,
     // If true the entire entity is locked.
@@ -115,7 +115,7 @@ impl Archetype {
     ///
     /// # Returns
     /// The index for the Entity in the Archetype.
-    pub unsafe fn add_entity<'data, Data>(&self, entity_id: u32, data: Data) -> u32
+    pub unsafe fn add_entity<'data, Data>(&self, entity_id: u32, comps: Data) -> u32
         where
             Data: Iterator<Item=&'data (ComponentInfo, NonNull<u8>)>,
     {
@@ -128,9 +128,12 @@ impl Archetype {
             let id = self.0.entities_len.fetch_add(1, Ordering::Relaxed);
             id
         };
-        for (ty, raw_pointer) in data {
-            let data = &self.0.entity_data[id as usize];
-            data.entity_id.store(entity_id, Ordering::Relaxed);
+        let data = &self.0.entity_data[id as usize];
+        data.entity_id.store(entity_id, Ordering::Relaxed);
+        let ptr = data.inner_ptrs.load(Ordering::Relaxed);
+
+        for (ty, raw_pointer) in comps {
+
             let (offset, _index) = *self
                 .0
                 .component_offsets
@@ -143,7 +146,7 @@ impl Archetype {
                 })
                 .unwrap();
 
-            let x = data.inner_ptrs.as_ptr().add(offset as usize);
+            let x = ptr.add(offset as usize);
             copy_nonoverlapping(raw_pointer.as_ptr(), x, ty.layout.size());
         }
         id
@@ -155,10 +158,12 @@ impl Archetype {
         if !data.try_mark_locked() {
             return Err(());
         }
+        let ptr = data.inner_ptrs.load(Ordering::Relaxed);
+
         for comp in self.0.components.iter() {
             let (offset, _) = *self.0.component_offsets.get(&comp.id).unwrap();
             unsafe {
-                let x1 = data.inner_ptrs.as_ptr().add(offset as usize);
+                let x1 = ptr.add(offset as usize);
                 (comp.drop)(x1);
             }
         }
@@ -187,13 +192,15 @@ impl Archetype {
         if !data.is_unlocked() {
             return Err(());
         }
+        let ptr = data.inner_ptrs.load(Ordering::Relaxed);
+
         let data = unsafe {
             T::return_mut(|typ| {
                 if let Some((offset, index)) = self.0.component_offsets.get(typ) {
                     let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
                     let v = anti_racey_byte.compare_exchange(0, 255, Ordering::Relaxed, Ordering::Relaxed);
                     if v.is_ok() {
-                        Some((anti_racey_byte.clone(), data.inner_ptrs.as_ptr().add(*offset)))
+                        Some((anti_racey_byte.clone(), ptr.add(*offset)))
                     } else {
                         None
                     }
@@ -232,7 +239,7 @@ impl Archetype {
                     let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
                     let v = anti_racey_byte.fetch_add(1, Ordering::Relaxed);
                     if v < 254 {
-                        Some((anti_racey_byte.clone(), data.inner_ptrs.as_ptr().add(*offset)))
+                        Some((anti_racey_byte.clone(), data.inner_ptrs.load(Ordering::Relaxed).add(*offset)))
                     } else {
                         None
                     }
@@ -262,7 +269,7 @@ pub struct ArchetypeInner {
     /// The number of entities in this archetype.
     pub(crate) entities_len: AtomicU32,
 
-    pub(crate) home_ptr: NonNull<u8>,
+    pub(crate) home_ptr: AtomicPtr<u8>,
 
     pub(crate) free_list: Mutex<Vec<u32>>,
 }
@@ -271,7 +278,6 @@ impl ArchetypeInner {
     pub(crate) fn new(mut components: Vec<ComponentInfo>, entity_start_size: usize) -> Self {
         components.sort_unstable_by_key(|c| c.id);
         let total_size = components.iter().map(|c| c.layout.size()).sum::<usize>();
-        let data = if entity_start_size > 0 {
             let ptr = unsafe {
                 alloc(Layout::from_size_align_unchecked(
                     total_size * entity_start_size,
@@ -282,7 +288,7 @@ impl ArchetypeInner {
             for entity_index in 0..entity_start_size {
                 unsafe {
                     data.push(EntityData {
-                        inner_ptrs: NonNull::new_unchecked(ptr.add(total_size * entity_index)),
+                        inner_ptrs: AtomicPtr::new(ptr.add(total_size * entity_index)),
                         entity_id: AtomicU32::new(0),
                         locked: AtomicU8::new(0),
                         anti_racey_bytes: components
@@ -292,13 +298,7 @@ impl ArchetypeInner {
                     });
                 }
             }
-            (data, NonNull::new(ptr).unwrap())
-        } else {
-            (
-                Vec::new(),
-                NonNull::new(std::ptr::null_mut::<u8>()).unwrap(),
-            )
-        };
+
         let mut offset = 0;
         let map = components.iter().enumerate().map(|(index, v)| {
             let my_offset = offset;
@@ -309,9 +309,9 @@ impl ArchetypeInner {
         Self {
             component_offsets: TypeIdSet::new(map),
             components: components.into_boxed_slice(),
-            entity_data: data.0.into_boxed_slice(),
+            entity_data: data.into_boxed_slice(),
             entities_len: AtomicU32::new(0),
-            home_ptr: data.1,
+            home_ptr: AtomicPtr::new(ptr),
             free_list: Mutex::new(Vec::with_capacity(1)),
         }
     }
@@ -330,9 +330,9 @@ impl ArchetypeInner {
         for (index, data) in old_entities.iter_mut().enumerate() {
             unsafe {
                 let new_pointer = ptr.add(total_size * index);
-                copy_nonoverlapping(data.inner_ptrs.as_ptr(), new_pointer, total_size);
+                copy_nonoverlapping(data.inner_ptrs.load(Ordering::Relaxed), new_pointer, total_size);
                 new_data.push(EntityData {
-                    inner_ptrs: NonNull::new_unchecked(new_pointer),
+                    inner_ptrs: AtomicPtr::new(new_pointer),
                     entity_id: mem::take(&mut data.entity_id),
                     locked: AtomicU8::new(0),
                     anti_racey_bytes: mem::take(&mut data.anti_racey_bytes),
@@ -343,7 +343,7 @@ impl ArchetypeInner {
             unsafe {
                 let new_pointer = ptr.add(total_size * i);
                 new_data.push(EntityData {
-                    inner_ptrs: NonNull::new_unchecked(new_pointer),
+                    inner_ptrs:AtomicPtr::new(new_pointer),
                     entity_id: AtomicU32::new(0),
                     locked: AtomicU8::new(0),
                     anti_racey_bytes: old
@@ -364,7 +364,7 @@ impl ArchetypeInner {
             components: old.components.clone(),
             entity_data: new_data.into_boxed_slice(),
             entities_len: mem::take(&mut old.entities_len),
-            home_ptr: NonNull::new(ptr).unwrap(),
+            home_ptr: AtomicPtr::new(ptr),
             free_list: mutex,
         }
     }
@@ -387,14 +387,14 @@ impl Drop for ArchetypeInner {
             self.components.iter().zip(self.component_offsets.0.iter())
             {
                 unsafe {
-                    let ptr = data.inner_ptrs.as_ptr().add(*offset);
+                    let ptr = data.inner_ptrs.load(Ordering::Relaxed).add(*offset);
                     (comp.drop)(ptr);
                 }
             }
         }
         unsafe {
             dealloc(
-                self.home_ptr.as_ptr(),
+                self.home_ptr.load(Ordering::Relaxed),
                 Layout::from_size_align_unchecked(i * self.entity_data.iter_mut().len(), 8),
             );
         }
