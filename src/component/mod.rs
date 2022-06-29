@@ -38,89 +38,86 @@ pub trait Bundle {
 pub trait ComponentLookup<'comp> {
     type MutResponse;
     type RefResponse;
-    fn component_info() -> Box<[ComponentInfo]>;
 
-    fn length() -> usize;
-    /// It is undefined behavior to call this without all the components.
-    unsafe fn return_mut(data: Vec<(Arc<AtomicU8>, *mut u8)>) -> Self::MutResponse where Self: Sized;
-    /// It is undefined behavior to call this without all the components.
-    unsafe fn return_ref(data: Vec<(Arc<AtomicU8>, *mut u8)>) -> Self::RefResponse where Self: Sized;
+    unsafe fn return_ref<GE, Failed>(get_entity: GE, failed: Failed) -> Option<Self::RefResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>, Failed: Fn(Vec<(Arc<AtomicU8>, *mut u8)>);
+    unsafe fn return_mut<GE, Failed>(get_entity: GE, failed: Failed) -> Option<Self::MutResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>, Failed: Fn(Vec<(Arc<AtomicU8>, *mut u8)>);
 }
 
 impl<'comp, C: Component> ComponentLookup<'comp> for C {
     type MutResponse = MutComponentRef<'comp, C>;
     type RefResponse = ComponentRef<'comp, C>;
 
-    fn component_info() -> Box<[ComponentInfo]> {
-        Box::new([ComponentInfo::new::<C>()])
-    }
-
-    fn length() -> usize {
-        1
-    }
-
-    unsafe fn return_mut(mut data: Vec<(Arc<AtomicU8>, *mut u8)>) -> Self::MutResponse where Self: Sized {
-        let (arc, ptr) = data.remove(0);
-        let x = &mut *ptr.cast();
-        MutComponentRef {
-            component: x,
-            ref_count: arc,
+    unsafe fn return_ref<GE, Failed>(get_entity: GE, failed: Failed) -> Option<Self::RefResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>, Failed: Fn(Vec<(Arc<AtomicU8>, *mut u8)>) {
+        if let Some((arc, ptr)) = get_entity(&TypeId::of::<C>()) {
+            let x = &*ptr.cast();
+            Some(ComponentRef {
+                component: x,
+                ref_count: arc,
+            })
+        } else {
+            failed(vec![]);
+            None
         }
     }
-    unsafe fn return_ref(mut data: Vec<(Arc<AtomicU8>, *mut u8)>) -> Self::RefResponse where Self: Sized {
-        let (arc, ptr) = data.remove(0);
-        let x = &*ptr.cast();
-        ComponentRef {
-            component: x,
-            ref_count: arc,
+
+    unsafe fn return_mut<GE, Failed>(get_entity: GE, failed: Failed) -> Option<Self::MutResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>, Failed: Fn(Vec<(Arc<AtomicU8>, *mut u8)>) {
+        if let Some((arc, ptr)) = get_entity(&TypeId::of::<C>()) {
+            let x = &mut *ptr.cast();
+            Some(MutComponentRef {
+                component: x,
+                ref_count: arc,
+            })
+        } else {
+            failed(vec![]);
+            None
         }
     }
 }
+impl<'comp,C: Component, D:Component> ComponentLookup<'comp> for (C,D){
+    type MutResponse = (MutComponentRef<'comp, C>,MutComponentRef<'comp, D>);
+    type RefResponse = (ComponentRef<'comp, C>,ComponentRef<'comp, D>);
 
-impl<'comp, C: Component, D: Component> ComponentLookup<'comp> for (C, D) {
-    type MutResponse = (MutComponentRef<'comp, C>, MutComponentRef<'comp, D>);
-    type RefResponse = (ComponentRef<'comp, C>, ComponentRef<'comp, D>);
-
-    fn component_info() -> Box<[ComponentInfo]> {
-        Box::new([ComponentInfo::new::<C>(), ComponentInfo::new::<D>()])
+    unsafe fn return_ref<GE, Failed>(get_entity: GE, failed: Failed) -> Option<Self::RefResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>, Failed: Fn(Vec<(Arc<AtomicU8>, *mut u8)>) {
+       let value = get_entity(&TypeId::of::<C>());
+        if value.is_none(){
+            failed(vec![]);
+            return None;
+        }
+        let (arc_one, data_one) = value.unwrap();
+        let value_two = get_entity(&TypeId::of::<D>());
+        if value_two.is_none(){
+            failed(vec![(arc_one, data_one)]);
+            return None;
+        }
+        let (arc_two, data_two) = value_two.unwrap();
+        Some((ComponentRef {
+            component: &*data_one.cast(),
+            ref_count: arc_one,
+        },ComponentRef {
+            component: &*data_two.cast(),
+            ref_count: arc_two,
+        }))
     }
 
-    fn length() -> usize {
-        2
-    }
-
-    unsafe fn return_mut(mut data: Vec<(Arc<AtomicU8>, *mut u8)>) -> Self::MutResponse where Self: Sized {
-        let ((c_arc, c_data), (d_arc, d_data)) = (data.remove(0), data.remove(0));
-        let c_data = &mut *c_data.cast();
-        let d_data = &mut *d_data.cast();
-        (
-            MutComponentRef {
-                component: c_data,
-                ref_count: c_arc,
-            },
-            MutComponentRef {
-                component: d_data,
-                ref_count: d_arc,
-            },
-        )
-    }
-
-    unsafe fn return_ref(mut data: Vec<(Arc<AtomicU8>, *mut u8)>) -> Self::RefResponse where Self: Sized {
-        let ((c_arc, c_data), (d_arc, d_data)) = (data.remove(0), data.remove(0));
-        let c_data = &*c_data.cast();
-        let d_data = &*d_data.cast();
-        (
-            ComponentRef {
-                component: c_data,
-                ref_count: c_arc,
-            },
-            ComponentRef {
-                component: d_data,
-                ref_count: d_arc,
-            },
-        )
+    unsafe fn return_mut<GE, Failed>(get_entity: GE, failed: Failed) -> Option<Self::MutResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>, Failed: Fn(Vec<(Arc<AtomicU8>, *mut u8)>) {
+        let value = get_entity(&TypeId::of::<C>());
+        if value.is_none(){
+            failed(vec![]);
+            return None;
+        }
+        let (arc_one, data_one) = value.unwrap();
+        let value_two = get_entity(&TypeId::of::<D>());
+        if value_two.is_none(){
+            failed(vec![]);
+            return None;
+        }
+        let (arc_two, data_two) = value_two.unwrap();
+        Some((MutComponentRef {
+            component: &mut *data_one.cast(),
+            ref_count: arc_one,
+        },MutComponentRef{
+            component: &mut *data_two.cast(),
+            ref_count: arc_two,
+        }))
     }
 }
-
-
-

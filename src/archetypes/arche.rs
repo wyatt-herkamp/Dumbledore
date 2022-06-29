@@ -153,39 +153,33 @@ impl Archetype {
         if entity_index >= inner.entities_len.load(Ordering::Relaxed) {
             return Ok(None);
         }
-        let mut elements = Vec::with_capacity(T::length());
-        for comp in T::component_info().iter() {
-            let comp_offset = inner.component_offsets.get(&comp.id);
-
-            if let Some((comp_offset, index)) = comp_offset {
-                let data = &inner.entity_data[entity_index as usize];
-                if !data.is_unlocked() {
-                    return Err(());
-                }
-                let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
-                let i = anti_racey_byte.compare_exchange(0, 255, Ordering::Relaxed, Ordering::Relaxed);
-                /// If it is at 254 it has too many readers. 255 it is being written to.
-                if i.is_ok() {
-                    let ptr = unsafe { data.inner_ptrs.as_ptr().add(*comp_offset) };
-                    elements.push((anti_racey_byte.clone(), ptr));
-                } else {
-                    elements.into_iter().for_each(|(arc, _)| {
-                        arc.store(0, Ordering::Relaxed);
-                    });
-                    return Err(());
-                }
-            } else {
-                elements.into_iter().for_each(|(arc, _)| {
-                    arc.store(0, Ordering::Relaxed);
-                });
-                return Err(());
-            }
+        let data = &inner.entity_data[entity_index as usize];
+        if !data.is_unlocked() {
+            return Err(());
         }
+        let data = unsafe {
+            T::return_mut(|typ| {
+                if let Some((offset, index)) = self.0.component_offsets.get(typ) {
+                    let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
+                    let v = anti_racey_byte.compare_exchange(0,255,Ordering::Relaxed,Ordering::Relaxed);
+                    if v.is_ok() {
+                        Some((anti_racey_byte.clone(), data.inner_ptrs.as_ptr().add(*offset)))
 
-        let return_ref1 = unsafe {
-            T::return_mut(elements)
+                    }else{
+                        None
+                    }
+                } else {
+                    None
+                }
+            }, |data| {
+                for (arc, _) in data.into_iter() {
+                    arc.fetch_sub(255, Ordering::Relaxed);
+                }
+            })
         };
-        Ok(Some(return_ref1))
+
+
+        Ok(data)
     }
 
     /// Returns a reference to the Component within the Entity.
@@ -203,35 +197,29 @@ impl Archetype {
         if !data.is_unlocked() {
             return Err(());
         }
-        let mut elements: Vec<(Arc<AtomicU8>, *mut u8)> = Vec::with_capacity(T::length());
-        for comp in T::component_info().iter() {
-            let comp_offset = inner.component_offsets.get(&comp.id);
-            if let Some((comp_offset, index)) = comp_offset {
-                let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
-                let i = anti_racey_byte.fetch_add(1, Ordering::Relaxed);
-                /// If it is at 254 it has too many readers. 255 it is being written to.
-                if i < 254 {
-                    let ptr = unsafe { data.inner_ptrs.as_ptr().add(*comp_offset) };
-                    elements.push((anti_racey_byte.clone(), ptr));
+        let data = unsafe {
+            T::return_ref(|typ| {
+                if let Some((offset, index)) = self.0.component_offsets.get(typ) {
+                    let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
+                    let v = anti_racey_byte.fetch_add(1, Ordering::Relaxed);
+                    if v < 254 {
+                        Some((anti_racey_byte.clone(), data.inner_ptrs.as_ptr().add(*offset)))
+
+                    }else{
+                        None
+                    }
                 } else {
-                    elements.into_iter().for_each(|(arc, _)| {
-                        arc.fetch_sub(1, Ordering::Relaxed);
-                    });
-                    return Err(());
+                    None
                 }
-            } else {
-                elements.into_iter().for_each(|(arc, _)| {
+            }, |data| {
+                for (arc, _) in data.into_iter() {
                     arc.fetch_sub(1, Ordering::Relaxed);
-                });
-                return Err(());
-            }
-        }
-        let return_ref1 = unsafe {
-            T::return_ref(elements)
+                }
+            })
         };
 
 
-        Ok(Some(return_ref1))
+        Ok(data)
     }
 }
 

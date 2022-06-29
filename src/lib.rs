@@ -96,7 +96,7 @@ pub fn test() {
             let entity = world.entities.get_location(i).unwrap();
             let index = entity.get_index();
             let option = player
-                .get_comp_mut::<(tests::Position, tests::Health)>(index).unwrap();
+                .get_comp::<(tests::Position, tests::Health)>(index).unwrap();
         }
     }
     println!("Finished in: {}", now.elapsed().as_millis());
