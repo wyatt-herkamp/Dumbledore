@@ -1,4 +1,8 @@
 # Dumbledore
+[![Documentation](https://docs.rs/dumbledore/badge.svg)](https://docs.rs/dumbledore/)
+[![Crates.io](https://img.shields.io/crates/v/dumbledore.svg)](https://crates.io/crates/dumbledore)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
+[![Unsafe Rust](https://forthebadge.com/images/badges/powered-by-black-magic.svg)](https://doc.rust-lang.org/book/ch19-01-unsafe-rust.html)
 
 ECS for the game server
 
