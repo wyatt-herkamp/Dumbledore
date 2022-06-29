@@ -10,7 +10,7 @@ pub trait Component: Send + Sync + 'static {
     }
 }
 
-impl<T: Send + Sync + 'static> Component for T {}
+//impl<T: Send + Sync + 'static> Component for T {}
 
 /// A Trait that can be converted into a Archetype.
 pub trait Bundle {

@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
@@ -58,7 +58,11 @@ pub struct MutComponentRef<'comp, T: Component> {
     pub(crate) component: &'comp mut T,
     pub(crate) ref_count: Arc<AtomicU8>,
 }
-
+impl<T: Component+ Debug> Debug for MutComponentRef<'_, T>{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.component.fmt(f)
+    }
+}
 impl<T: Component> Drop for MutComponentRef<'_, T> {
     fn drop(&mut self) {
         self.ref_count.fetch_sub(255, std::sync::atomic::Ordering::Relaxed);

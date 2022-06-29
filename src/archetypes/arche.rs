@@ -20,7 +20,7 @@ use crate::sets::TypeIdSet;
 ///
 /// Contains a pointer to the actual component data. Data is offset by the size of the component.
 #[derive(Debug)]
-pub struct EntityData {
+pub(crate) struct EntityData {
     pub(crate) inner_ptrs: NonNull<u8>,
     // The EntityID
     pub(crate) entity_id: AtomicU32,
@@ -79,6 +79,10 @@ pub struct Archetype(pub(crate) Arc<ArchetypeInner>);
 
 
 impl Archetype {
+
+    pub fn entities_left(&self) -> bool {
+        self.0.entity_data.len() >= (self.0.entities_len.load(Ordering::Relaxed) as usize + 1)
+    }
     /// Attempts to release the internal ArchetypeInner then increase the size.
     ///
     /// Should be called after World::take_archetype(). This allows the World to stop trying to access the Archetype.
@@ -132,6 +136,11 @@ impl Archetype {
         }
         id
     }
+    /// Returns a Mutable reference to the Component within the Entity.
+    ///
+    /// # Returns
+    /// Ok(Option<MutComponentRef>) if was component is unlocked.
+    /// Err(()) if the component is locked.
     pub fn get_comp_mut<T: Component>(&self, entity_index: u32) -> Result<Option<MutComponentRef<T>>, ()> {
         let inner = &self.0;
 
@@ -163,7 +172,11 @@ impl Archetype {
         }
     }
 
-
+    /// Returns a reference to the Component within the Entity.
+    ///
+    /// # Returns
+    /// Ok(Option<MutComponentRef>) if was component is unlocked.
+    /// Err(()) if the component is locked.
     pub fn get_comp<T: Component>(&self, entity_index: u32) -> Result<Option<ComponentRef<T>>, ()> {
         let inner = &self.0;
 
@@ -198,8 +211,8 @@ impl Archetype {
     }
 }
 
-
-pub(crate) struct ArchetypeInner {
+#[derive(Debug)]
+pub struct ArchetypeInner {
     /// The component types in this archetype.
     pub(crate) component_offsets: TypeIdSet<(usize, u32)>,
 
