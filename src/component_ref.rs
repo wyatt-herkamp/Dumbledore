@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicU8;
 use crate::component::Component;
+use std::sync::atomic::AtomicU8;
+use std::sync::Arc;
 
 pub struct ComponentRef<'comp, T: Component> {
     pub(crate) component: &'comp T,
@@ -11,7 +11,8 @@ pub struct ComponentRef<'comp, T: Component> {
 
 impl<T: Component> Drop for ComponentRef<'_, T> {
     fn drop(&mut self) {
-        self.ref_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        self.ref_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -27,9 +28,6 @@ impl<T: Component + PartialEq> PartialEq for ComponentRef<'_, T> {
     }
 }
 
-
-
-
 impl<T: Component + Debug> Debug for ComponentRef<'_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.component.fmt(f)
@@ -42,11 +40,10 @@ impl<T: Component + Display> Display for ComponentRef<'_, T> {
     }
 }
 
-
-
 impl<T: Component> Clone for ComponentRef<'_, T> {
     fn clone(&self) -> Self {
-        self.ref_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.ref_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             component: self.component,
             ref_count: self.ref_count.clone(),
@@ -58,14 +55,15 @@ pub struct MutComponentRef<'comp, T: Component> {
     pub(crate) component: &'comp mut T,
     pub(crate) ref_count: Arc<AtomicU8>,
 }
-impl<T: Component+ Debug> Debug for MutComponentRef<'_, T>{
+impl<T: Component + Debug> Debug for MutComponentRef<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.component.fmt(f)
     }
 }
 impl<T: Component> Drop for MutComponentRef<'_, T> {
     fn drop(&mut self) {
-        self.ref_count.fetch_sub(255, std::sync::atomic::Ordering::Relaxed);
+        self.ref_count
+            .fetch_sub(255, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

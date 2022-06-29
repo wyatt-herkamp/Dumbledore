@@ -1,9 +1,9 @@
+use crate::archetypes::arche::EntityData;
+use crate::entities::entity::{Entity, EntityLocation, EntityMeta};
 use std::mem;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicIsize, AtomicU32, AtomicUsize, Ordering};
 use std::sync::RwLock;
-use crate::archetypes::arche::EntityData;
-use crate::entities::entity::{Entity, EntityLocation, EntityMeta};
 pub struct EntitySet {
     // Active Entities
     pub(crate) entities: Box<[RwLock<EntityMeta>]>,
@@ -51,5 +51,12 @@ impl EntitySet {
         guard.location = EntityLocation::default();
         guard.generation = NonZeroU32::new(guard.generation.get() + 1).unwrap();
         self.free_list.write().unwrap().push(i);
+    }
+    pub fn get_location(&self, entity: u32) -> Option<EntityLocation> {
+        if entity as usize >= self.entities.len() {
+            return None;
+        }
+        let guard = self.entities[entity as usize].read().unwrap();
+        Some(guard.location.clone())
     }
 }
