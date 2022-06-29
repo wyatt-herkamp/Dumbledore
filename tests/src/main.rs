@@ -39,13 +39,13 @@ fn main() {
             })
             .unwrap();
     }
-    let player = world.archetypes.get(&0).unwrap();
+    let player = world.get_archetype::<Player>().unwrap();
     let now = std::time::Instant::now();
 
     for _ in 0..2048 {
         for i in 0..255 {
-            let entity = world.entities.get_location(i).unwrap();
-            let index = entity.index;
+            let (entity, location) = world.get_entities().get_entity(i).unwrap();
+            let index = location.index;
             let option = player
                 .get_comp::<(Position, Health)>(index).unwrap();
         }

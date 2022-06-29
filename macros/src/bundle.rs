@@ -3,16 +3,18 @@ use std::hash::{Hash, Hasher};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-use syn::{DataStruct, DeriveInput, LitInt, Result};
+use syn::{DataStruct, DeriveInput, LitBool, LitInt, Result};
 use syn::{Fields, Ident};
 use syn::parse::ParseStream;
 
 mod bundle_attrs {
     syn::custom_keyword!(id);
+    syn::custom_keyword!(generate_lookup);
 }
 
 enum BundleAttrs {
     Id { value: LitInt },
+    GenerateLookup { value: LitBool },
 }
 
 impl syn::parse::Parse for BundleAttrs {
@@ -24,20 +26,37 @@ impl syn::parse::Parse for BundleAttrs {
             Ok(BundleAttrs::Id {
                 value: input.parse()?,
             })
+        } else if lookahead.peek(bundle_attrs::generate_lookup) {
+            input.parse::<bundle_attrs::id>()?;
+            input.parse::<syn::Token![=]>()?;
+            Ok(BundleAttrs::GenerateLookup {
+                value: input.parse()?,
+            })
         } else {
             Err(lookahead.error())
         }
     }
 }
 
-pub(crate) fn process_bundle(input: syn::DeriveInput, en: DataStruct) -> Result<TokenStream> {
+pub(crate) fn process_bundle(input: DeriveInput, en: DataStruct) -> Result<TokenStream> {
     let ident = input.ident;
-    let  bundle_attrs = input.attrs.iter().find(|a| a.path.is_ident("bundle"));
-    let bundle_attrs = if let Some(bundle_attrs) = bundle_attrs{
-        Some(bundle_attrs.parse_args::<BundleAttrs>()?)
-    }else{
-        None
-    };
+
+    let mut id: Option<u32> = None;
+    let mut generate_lookup: Option<bool> = None;
+
+    for attr in input.attrs.iter() {
+        if attr.path.is_ident("bundle") {
+            let bundle_attrs = attr.parse_args::<BundleAttrs>()?;
+            match bundle_attrs {
+                BundleAttrs::Id { value } => {
+                    id = Some(value.base10_parse()?);
+                }
+                BundleAttrs::GenerateLookup { value } => {
+                    generate_lookup = Some(value.value());
+                }
+            }
+        }
+    }
 
     let mut components = Vec::new();
     let mut comp_refs = Vec::new();
@@ -49,7 +68,6 @@ pub(crate) fn process_bundle(input: syn::DeriveInput, en: DataStruct) -> Result<
             comp_refs = named.named.iter().map(|field| {
                 let ident = field.ident.clone().unwrap();
                 let typ = &field.ty;
-                //             let position = &mut self.position as *mut Position;
                 quote! {
                     let #ident = &mut self.#ident as *mut #typ;
                     components.push(#ident);
@@ -68,24 +86,18 @@ pub(crate) fn process_bundle(input: syn::DeriveInput, en: DataStruct) -> Result<
             ));
         }
     }
-let id=
-    if let Some(bundle_attrs) = bundle_attrs{
-        match bundle_attrs{
-            BundleAttrs::Id{value}=> {
-                let value = value.base10_parse::<u32>()?;
-               value
-
-            },
-        }
-    }else{
+    let id = id.unwrap_or_else(|| {
         let mut hasher = DefaultHasher::default();
         ident.to_string().hash(&mut hasher);
         hasher.finish() as u32
-
-    };
-
-
+    });
     let size = components.len();
+    if let Some(value) = generate_lookup {
+        if value {
+            println!("TODO: generate lookup for {}", ident);
+            // TODO: generate lookup
+        }
+    }
     Ok(quote! {
         impl dumbledore::component::Bundle for #ident {
             fn into_component_ptrs(self) -> Box<[(dumbledore::archetypes::ComponentInfo, NonNull<u8>)]>

@@ -67,8 +67,8 @@ impl EntitySet {
         } else {
             self.0.length.fetch_add(1, Ordering::Relaxed) as usize
         };
-        let guard = self.0.entities[id as usize].lock().unwrap();
-
+        let mut guard = self.0.entities[id as usize].lock().unwrap();
+        guard.in_use = true;
         Entity {
             generation: guard.generation,
             id: id as u32,
@@ -82,14 +82,15 @@ impl EntitySet {
         let mut guard = self.0.entities[i].lock().unwrap();
         guard.location = location;
     }
-    pub fn free(&self, entity: Entity) -> Option<EntityLocation> {
+    pub fn free<E: Into<u32>>(&self, entity: E) -> Option<EntityLocation> {
         if self.is_locked() {
             panic!("EntitySet is locked!");
         }
-        let i = entity.id as usize;
+        let i = entity.into() as usize;
         let mut guard = self.0.entities[i].lock().unwrap();
         let old_location = mem::take(&mut guard.location);
         guard.generation = NonZeroU32::new(guard.generation.get() + 1).unwrap();
+        guard.in_use = false;
         self.0.free_list.lock().unwrap().push(i);
         Some(old_location)
     }
@@ -102,5 +103,22 @@ impl EntitySet {
         }
         let guard = self.0.entities[entity as usize].lock().unwrap();
         Some(guard.location.clone())
+    }
+    pub fn get_entity(&self, entity: u32) -> Option<(Entity, EntityLocation)> {
+        if self.is_locked() {
+            panic!("EntitySet is locked!");
+        }
+        if entity as usize >= self.0.entities.len() {
+            return None;
+        }
+        let guard = self.0.entities[entity as usize].lock().unwrap();
+        if guard.in_use {
+            Some((Entity {
+                generation: guard.generation,
+                id: entity,
+            }, guard.location.clone()))
+        } else {
+            None
+        }
     }
 }

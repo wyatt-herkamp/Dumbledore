@@ -13,9 +13,15 @@ impl From<u32> for Entity {
         }
     }
 }
+impl Into<u32> for Entity{
+    fn into(self) -> u32 {
+        self.id
+    }
+}
 #[derive(Clone, Debug)]
 pub struct EntityMeta {
     pub(crate) generation: NonZeroU32,
+    pub in_use: bool,
     pub location: EntityLocation,
 }
 
@@ -23,6 +29,7 @@ impl Default for EntityMeta {
     fn default() -> Self {
         EntityMeta {
             generation: NonZeroU32::new(1).unwrap(),
+            in_use: false,
             location: EntityLocation::default(),
         }
     }

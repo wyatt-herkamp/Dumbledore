@@ -13,6 +13,7 @@ pub mod tests {
     use crate::archetypes::ComponentInfo;
     use crate::component::{Bundle, Component};
     use std::ptr::NonNull;
+    use crate::world::World;
 
     #[derive(Debug, Clone)]
     pub struct Position {
@@ -71,122 +72,123 @@ pub mod tests {
             0
         }
     }
-}
 
-#[test]
-pub fn test() {
-    let mut world = world::World::new(256);
-    world.add_archetype::<tests::Player>(256);
-    for i in 0..255 {
-        world
-            .add_entity(tests::Player {
-                position: tests::Position { x: 0.0, y: 0.0 },
-                health: tests::Health {
-                    health: 100.0,
-                    food: 100.0,
-                },
-            })
-            .unwrap();
-    }
-    let player = world.archetypes.get(&0).unwrap();
-    let now = std::time::Instant::now();
-
-    for _ in 0..2048 {
+    #[test]
+    pub fn test() {
+        let mut world =World::new(256);
+        world.add_archetype::<Player>(256);
         for i in 0..255 {
-            let entity = world.entities.get_location(i).unwrap();
-            let index = entity.index;
-            let option = player
-                .get_comp::<(tests::Position, tests::Health)>(index).unwrap();
+            world
+                .add_entity(Player {
+                    position: Position { x: 0.0, y: 0.0 },
+                    health: Health {
+                        health: 100.0,
+                        food: 100.0,
+                    },
+                })
+                .unwrap();
         }
-    }
-    println!("Finished in: {}", now.elapsed().as_millis());
-}
+        let player = world.get_archetype::<Player>().unwrap();
+        let now = std::time::Instant::now();
 
-#[test]
-pub fn entities_realloc() {
-    let mut world = world::World::new(256);
-    world.add_archetype::<tests::Player>(256);
-    for i in 0..1024 {
-        if !world.entities.entities_left() {
-            world.increase_entities(Some(256)).unwrap();
-        }
-        if let Err(error) = world
-            .add_entity(tests::Player {
-                position: tests::Position { x: 0.0, y: 0.0 },
-                health: tests::Health {
-                    health: 100.0,
-                    food: 100.0,
-                },
-            }) {
-            match error {
-                crate::world::WorldError::TooManyEntitiesInArchetype => {
-                    let option = world.take_archetype::<tests::Player>().unwrap();
-                    let archetype = option.resize(Some(256)).unwrap();
-                    world.push_archetype::<tests::Player>(archetype);
-                }
-                _ => {}
+        for _ in 0..2048 {
+            for i in 0..255 {
+                let entity = world.get_entities().get_location(i).unwrap();
+                let index = entity.index;
+                let option = player
+                    .get_comp::<(Position, Health)>(index).unwrap();
             }
         }
+        println!("Finished in: {}", now.elapsed().as_millis());
     }
-    let player = world.archetypes.get(&0).unwrap();
 
-    for _ in 0..2048 {
+    #[test]
+    pub fn entities_realloc() {
+        let mut world = World::new(256);
+        world.add_archetype::<Player>(256);
         for i in 0..1024 {
-            let entity = world.entities.get_location(i).unwrap();
-            let index = entity.index;
-            let option = player
-                .get_comp::<(tests::Position, tests::Health)>(index).unwrap();
-        }
-    }
-}
-
-#[test]
-pub fn random_delete_an_add() {
-    let mut world = world::World::new(256);
-    world.add_archetype::<tests::Player>(256);
-    for i in 0..1024 {
-        if !world.entities.entities_left() {
-            world.increase_entities(Some(256)).unwrap();
-        }
-        if let Err(error) = world
-            .add_entity(tests::Player {
-                position: tests::Position { x: 0.0, y: 0.0 },
-                health: tests::Health {
-                    health: 100.0,
-                    food: 100.0,
-                },
-            }) {
-            match error {
-                crate::world::WorldError::TooManyEntitiesInArchetype => {
-                    let option = world.take_archetype::<tests::Player>().unwrap();
-                    let archetype = option.resize(Some(256)).unwrap();
-                    world.push_archetype::<tests::Player>(archetype);
+            if !world.get_entities().entities_left() {
+                world.increase_entities(Some(256)).unwrap();
+            }
+            if let Err(error) = world
+                .add_entity(Player {
+                    position: Position { x: 0.0, y: 0.0 },
+                    health: Health {
+                        health: 100.0,
+                        food: 100.0,
+                    },
+                }) {
+                match error {
+                    crate::world::WorldError::TooManyEntitiesInArchetype => {
+                        let option = world.take_archetype::<Player>().unwrap();
+                        let archetype = option.resize(Some(256)).unwrap();
+                        world.push_archetype::<Player>(archetype);
+                    }
+                    _ => {}
                 }
-                _ => {}
+            }
+        }
+        let player = world.get_archetype::<Player>().unwrap();
+
+        for _ in 0..2048 {
+            for i in 0..1024 {
+                let entity = world.get_entities().get_location(i).unwrap();
+                let index = entity.index;
+                let option = player
+                    .get_comp::<(Position, Health)>(index).unwrap();
             }
         }
     }
-    for _ in 0..256 {
-        let random1: u8 = rand::random();
-        let entity = crate::entities::entity::Entity::from(random1 as u32);
 
-        world.remove_entity(entity);
-        let player = world.archetypes.get(&0).unwrap();
+    #[test]
+    pub fn random_delete_an_add() {
+        let mut world = World::new(256);
+        world.add_archetype::<Player>(256);
+        for i in 0..1024 {
+            if !world.get_entities().entities_left() {
+                world.increase_entities(Some(256)).unwrap();
+            }
+            if let Err(error) = world
+                .add_entity(Player {
+                    position: Position { x: 0.0, y: 0.0 },
+                    health: Health {
+                        health: 100.0,
+                        food: 100.0,
+                    },
+                }) {
+                match error {
+                    crate::world::WorldError::TooManyEntitiesInArchetype => {
+                        let option = world.take_archetype::<Player>().unwrap();
+                        let archetype = option.resize(Some(256)).unwrap();
+                        world.push_archetype::<Player>(archetype);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for _ in 0..256 {
+            let random1: u8 = rand::random();
+            let entity = crate::entities::entity::Entity::from(random1 as u32);
 
-        let (entity, id) = world.add_entity(tests::Player {
-            position: tests::Position { x: 0.0, y: 0.0 },
-            health: tests::Health {
-                health: 100.0,
-                food: 50.0,
-            },
-        }).unwrap();
+            world.remove_entity(entity);
+            let player = world.get_archetype::<Player>().unwrap();
 
-        assert_eq!(entity.id, random1 as u32);
+            let (entity, id) = world.add_entity(Player {
+                position: Position { x: 0.0, y: 0.0 },
+                health: Health {
+                    health: 100.0,
+                    food: 50.0,
+                },
+            }).unwrap();
 
-        if player
-            .get_comp::<(tests::Health)>(id.index).is_err() {
-            println!(" {:?}", id);
-            println!(" {:?}", entity);
-        };
+            assert_eq!(entity.id, random1 as u32);
+
+            if player
+                .get_comp::<(Health)>(id.index).is_err() {
+                println!(" {:?}", id);
+                println!(" {:?}", entity);
+            };
+        }
     }
 }
+

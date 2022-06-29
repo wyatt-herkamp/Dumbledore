@@ -4,6 +4,9 @@ use crate::component::Component;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
+/// A Reference to a Component.
+///
+/// Drops the Ref Count down when the Component is dropped.
 pub struct ComponentRef<'comp, T: Component> {
     pub(crate) component: &'comp T,
     pub(crate) ref_count: Arc<AtomicU8>,
@@ -51,15 +54,20 @@ impl<T: Component> Clone for ComponentRef<'_, T> {
     }
 }
 
+/// A Reference to a Component.
+///
+/// Drops the Ref Count down when the Component is dropped.
 pub struct MutComponentRef<'comp, T: Component> {
     pub(crate) component: &'comp mut T,
     pub(crate) ref_count: Arc<AtomicU8>,
 }
+
 impl<T: Component + Debug> Debug for MutComponentRef<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.component.fmt(f)
     }
 }
+
 impl<T: Component> Drop for MutComponentRef<'_, T> {
     fn drop(&mut self) {
         self.ref_count

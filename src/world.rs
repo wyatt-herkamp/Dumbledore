@@ -6,10 +6,11 @@ use std::collections::BTreeMap;
 
 use std::sync::{atomic, Arc};
 
+/// The World is the central access point to the data in ECS environment.
 #[derive(Clone, Debug)]
 pub struct World {
-    pub archetypes: BTreeMap<u32, Archetype>,
-    pub entities: EntitySet,
+    archetypes: BTreeMap<u32, Archetype>,
+    entities: EntitySet,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -25,13 +26,17 @@ pub enum WorldError {
 }
 
 impl World {
+    /// Create a new World pre-allocated with the given number of Entities.
     pub fn new(entity_size: u32) -> Self {
         World {
             archetypes: BTreeMap::new(),
             entities: EntitySet(Arc::new(EntitySetInner::new(entity_size))),
         }
     }
-
+    /// Adds a new Archetype to the World based on the given Type
+    ///
+    /// # Arguments
+    /// * `size` - The number of Entities to allocate for the Archetype.
     pub fn add_archetype<B: Bundle>(&mut self, size: usize) {
         let inner = ArchetypeInner::new(B::component_info(), size);
         self.archetypes
@@ -41,6 +46,13 @@ impl World {
     pub fn take_archetype<B: Bundle>(&mut self) -> Option<Archetype> {
         self.archetypes.remove(&B::archetype_id())
     }
+
+    pub fn get_archetype<B: Bundle>(&self) -> Option<&Archetype> {
+        self.archetypes.get(&B::archetype_id())
+    }
+    /// Pushes an Archetype to the World.
+    ///
+    /// This us done after the Archetype has been reallocated.
     pub fn push_archetype<B: Bundle>(&mut self, archetype: Archetype) {
         self.archetypes.insert(B::archetype_id(), archetype);
     }
@@ -61,7 +73,13 @@ impl World {
         self.entities = EntitySet(Arc::new(inner));
         Ok(())
     }
-    pub fn remove_entity(&mut self, entity: Entity) {
+    pub fn get_entities(&self) -> &EntitySet {
+        &self.entities
+    }
+    /// Remove an entity from the world.
+    /// # Arguments
+    /// * `entity` - The entity to remove.
+    pub fn remove_entity<E: Into<u32>>(&mut self, entity: E) {
         let option = self.entities.free(entity);
         if let Some(index) = option {
             let x = self.archetypes.get(&index.archetype).unwrap();
