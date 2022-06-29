@@ -7,7 +7,7 @@ use std::fmt::{Debug, Formatter};
 use std::{io, mem};
 
 use crate::archetypes::ComponentInfo;
-use crate::component::Component;
+use crate::component::{Component, ComponentLookup};
 use crate::component_ref::{ComponentRef, MutComponentRef};
 use crate::sets::TypeIdSet;
 use std::ptr::{copy_nonoverlapping, NonNull};
@@ -115,8 +115,8 @@ impl Archetype {
     /// # Returns
     /// The index for the Entity in the Archetype.
     pub unsafe fn add_entity<'data, Data>(&self, entity_id: u32, data: Data) -> u32
-    where
-        Data: Iterator<Item = &'data (ComponentInfo, NonNull<u8>)>,
+        where
+            Data: Iterator<Item=&'data (ComponentInfo, NonNull<u8>)>,
     {
         let id = self.0.entities_len.fetch_add(1, Ordering::Relaxed);
         for (ty, raw_pointer) in data {
@@ -144,36 +144,48 @@ impl Archetype {
     /// # Returns
     /// Ok(Option<MutComponentRef>) if was component is unlocked.
     /// Err(()) if the component is locked.
-    pub fn get_comp_mut<T: Component>(
+    pub fn get_comp_mut<'comp, T: ComponentLookup<'comp>>(
         &self,
         entity_index: u32,
-    ) -> Result<Option<MutComponentRef<T>>, ()> {
+    ) -> Result<Option<T::MutResponse>, ()> {
         let inner = &self.0;
 
         if entity_index >= inner.entities_len.load(Ordering::Relaxed) {
             return Ok(None);
         }
-        let comp_offset = inner.component_offsets.get(&TypeId::of::<T>());
-        if let Some((comp_offset, index)) = comp_offset {
-            let data = &inner.entity_data[entity_index as usize];
-            if !data.is_unlocked() {
-                return Err(());
-            }
-            let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
-            let i = anti_racey_byte.load(Ordering::Acquire);
-            if i > 0 {
-                return Err(());
+        let mut elements = Vec::with_capacity(T::length());
+        for comp in T::component_info().iter() {
+            let comp_offset = inner.component_offsets.get(&comp.id);
+
+            if let Some((comp_offset, index)) = comp_offset {
+                let data = &inner.entity_data[entity_index as usize];
+                if !data.is_unlocked() {
+                    return Err(());
+                }
+                let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
+                let i = anti_racey_byte.compare_exchange(0, 255, Ordering::Relaxed, Ordering::Relaxed);
+                /// If it is at 254 it has too many readers. 255 it is being written to.
+                if i.is_ok() {
+                    let ptr = unsafe { data.inner_ptrs.as_ptr().add(*comp_offset) };
+                    elements.push((anti_racey_byte.clone(), ptr));
+                } else {
+                    elements.into_iter().for_each(|(arc, _)| {
+                        arc.store(0, Ordering::Relaxed);
+                    });
+                    return Err(());
+                }
             } else {
-                let ptr = unsafe { &mut *data.inner_ptrs.as_ptr().add(*comp_offset).cast::<T>() };
-                anti_racey_byte.store(255, Ordering::Relaxed);
-                Ok(Some(MutComponentRef {
-                    component: ptr,
-                    ref_count: Arc::clone(anti_racey_byte),
-                }))
+                elements.into_iter().for_each(|(arc, _)| {
+                    arc.store(0, Ordering::Relaxed);
+                });
+                return Err(());
             }
-        } else {
-            Ok(None)
         }
+
+        let return_ref1 = unsafe {
+            T::return_mut(elements)
+        };
+        Ok(Some(return_ref1))
     }
 
     /// Returns a reference to the Component within the Entity.
@@ -181,35 +193,45 @@ impl Archetype {
     /// # Returns
     /// Ok(Option<MutComponentRef>) if was component is unlocked.
     /// Err(()) if the component is locked.
-    pub fn get_comp<T: Component>(&self, entity_index: u32) -> Result<Option<ComponentRef<T>>, ()> {
+    pub fn get_comp<'comp, T: ComponentLookup<'comp>>(&self, entity_index: u32) -> Result<Option<T::RefResponse>, ()> {
         let inner = &self.0;
 
         if entity_index >= inner.entities_len.load(Ordering::Relaxed) {
             return Ok(None);
         }
-        let comp_offset = inner.component_offsets.get(&TypeId::of::<T>());
-        if let Some((comp_offset, index)) = comp_offset {
-            let data = &inner.entity_data[entity_index as usize];
-            if !data.is_unlocked() {
+        let data = &inner.entity_data[entity_index as usize];
+        if !data.is_unlocked() {
+            return Err(());
+        }
+        let mut elements: Vec<(Arc<AtomicU8>, *mut u8)> = Vec::with_capacity(T::length());
+        for comp in T::component_info().iter() {
+            let comp_offset = inner.component_offsets.get(&comp.id);
+            if let Some((comp_offset, index)) = comp_offset {
+                let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
+                let i = anti_racey_byte.fetch_add(1, Ordering::Relaxed);
+                /// If it is at 254 it has too many readers. 255 it is being written to.
+                if i < 254 {
+                    let ptr = unsafe { data.inner_ptrs.as_ptr().add(*comp_offset) };
+                    elements.push((anti_racey_byte.clone(), ptr));
+                } else {
+                    elements.into_iter().for_each(|(arc, _)| {
+                        arc.fetch_sub(1, Ordering::Relaxed);
+                    });
+                    return Err(());
+                }
+            } else {
+                elements.into_iter().for_each(|(arc, _)| {
+                    arc.fetch_sub(1, Ordering::Relaxed);
+                });
                 return Err(());
             }
-            let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
-            let i = anti_racey_byte.load(Ordering::Acquire);
-            /// If it is at 254 it has too many readers. 255 it is being written to.
-            if i < 254 {
-                let ptr = unsafe { &mut *data.inner_ptrs.as_ptr().add(*comp_offset).cast::<T>() };
-                anti_racey_byte.store(i + 1, Ordering::Relaxed);
-
-                Ok(Some(ComponentRef {
-                    component: ptr,
-                    ref_count: anti_racey_byte.clone(),
-                }))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(None)
         }
+        let return_ref1 = unsafe {
+            T::return_ref(elements)
+        };
+
+
+        Ok(Some(return_ref1))
     }
 }
 
@@ -338,7 +360,7 @@ impl Drop for ArchetypeInner {
                 break;
             }
             for (comp, (_ty, (offset, _))) in
-                self.components.iter().zip(self.component_offsets.0.iter())
+            self.components.iter().zip(self.component_offsets.0.iter())
             {
                 unsafe {
                     let ptr = data.inner_ptrs.as_ptr().add(*offset);

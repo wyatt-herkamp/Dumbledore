@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 pub mod archetypes;
 pub mod component;
 pub mod component_ref;
@@ -86,19 +88,17 @@ pub fn test() {
             .unwrap();
     }
     let player = world.archetypes.get(&0).unwrap();
+    let now = Instant::now();
+
     for _ in 0..2048 {
         for i in 0..255 {
+
             let entity = world.entities.get_location(i).unwrap();
             let index = entity.get_index();
             let option = player
-                .get_comp_mut::<tests::Position>(index)
-                .unwrap()
-                .unwrap();
-            let option = player
-                .get_comp_mut::<tests::Health>(index)
-                .unwrap()
-                .unwrap();
+                .get_comp_mut::<(tests::Position, tests::Health)>(index).unwrap();
         }
     }
-    println!("{:?}", world.entities.get_location(0).unwrap());
+    println!("Finished in: {}", now.elapsed().as_millis());
+
 }
