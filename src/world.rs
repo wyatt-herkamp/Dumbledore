@@ -57,6 +57,17 @@ impl World {
         self.entities = EntitySet(Arc::new(inner));
         Ok(())
     }
+    pub fn remove_entity(&mut self, entity: Entity) {
+        let option = self.entities.free(entity);
+        if let Some(index) = option {
+            let x = self.archetypes.get(&index.archetype).unwrap();
+            if x.remove(index.index).is_err(){
+                panic!("Tried to remove an entity that was not in the archetype");
+            }
+        }else{
+            panic!("Tried to remove an entity that was not in the world");
+        }
+    }
     pub fn add_entity<B: Bundle>(&self, bundle: B) -> Result<(Entity, EntityLocation), WorldError> {
         if self.entities.is_locked() {
             return Err(WorldError::EntitySetLocked);
@@ -77,7 +88,7 @@ impl World {
             &entity,
             EntityLocation {
                 archetype: B::archetype_id(),
-                index: Arc::new(AtomicU32::new(data)),
+                index: data,
             },
         );
         let location = self.entities.get_location(entity.id).unwrap();

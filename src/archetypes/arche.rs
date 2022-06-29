@@ -12,7 +12,7 @@ use crate::component_ref::{ComponentRef, MutComponentRef};
 use crate::sets::TypeIdSet;
 use std::ptr::{copy_nonoverlapping, NonNull};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Contains a Slice of AtomicU8s being the RwLock status of each component within the entity.
 ///
@@ -119,7 +119,15 @@ impl Archetype {
         where
             Data: Iterator<Item=&'data (ComponentInfo, NonNull<u8>)>,
     {
-        let id = self.0.entities_len.fetch_add(1, Ordering::Relaxed);
+        let mut result = self.0.free_list.lock().unwrap();
+        let id =if let Some(pop) = result.pop() {
+            drop(result);
+            pop
+        } else {
+            drop(result);
+            let id = self.0.entities_len.fetch_add(1, Ordering::Relaxed);
+            id
+        };
         for (ty, raw_pointer) in data {
             let data = &self.0.entity_data[id as usize];
             data.entity_id.store(entity_id, Ordering::Relaxed);
@@ -140,6 +148,27 @@ impl Archetype {
         }
         id
     }
+    /// Returns Err(()) if the entity is locked. However, this does mark the entity as locking so data can not be read anymore
+    pub fn remove(&self, index: u32) -> Result<(), ()> {
+        let data = &self.0.entity_data[index as usize];
+        data.mark_locking();
+        if !data.try_mark_locked() {
+            return Err(());
+        }
+        for comp in self.0.components.iter() {
+            let (offset, _) = *self.0.component_offsets.get(&comp.id).unwrap();
+            unsafe {
+                let x1 = data.inner_ptrs.as_ptr().add(offset as usize);
+                (comp.drop)(x1);
+            }
+        }
+        data.entity_id.store(0, Ordering::Relaxed);
+        let mut result = self.0.free_list.lock().unwrap();
+        result.push(index);
+        data.mark_unlocked();
+        Ok(())
+    }
+
     /// Returns a Mutable reference to the Component within the Entity.
     ///
     /// # Returns
@@ -162,11 +191,10 @@ impl Archetype {
             T::return_mut(|typ| {
                 if let Some((offset, index)) = self.0.component_offsets.get(typ) {
                     let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
-                    let v = anti_racey_byte.compare_exchange(0,255,Ordering::Relaxed,Ordering::Relaxed);
+                    let v = anti_racey_byte.compare_exchange(0, 255, Ordering::Relaxed, Ordering::Relaxed);
                     if v.is_ok() {
                         Some((anti_racey_byte.clone(), data.inner_ptrs.as_ptr().add(*offset)))
-
-                    }else{
+                    } else {
                         None
                     }
                 } else {
@@ -205,8 +233,7 @@ impl Archetype {
                     let v = anti_racey_byte.fetch_add(1, Ordering::Relaxed);
                     if v < 254 {
                         Some((anti_racey_byte.clone(), data.inner_ptrs.as_ptr().add(*offset)))
-
-                    }else{
+                    } else {
                         None
                     }
                 } else {
@@ -236,6 +263,8 @@ pub struct ArchetypeInner {
     pub(crate) entities_len: AtomicU32,
 
     pub(crate) home_ptr: NonNull<u8>,
+
+    pub(crate) free_list: Mutex<Vec<u32>>,
 }
 
 impl ArchetypeInner {
@@ -283,6 +312,7 @@ impl ArchetypeInner {
             entity_data: data.0.into_boxed_slice(),
             entities_len: AtomicU32::new(0),
             home_ptr: data.1,
+            free_list: Mutex::new(Vec::with_capacity(1)),
         }
     }
     /// Clones the data from the old archetype into the new one.
@@ -325,12 +355,17 @@ impl ArchetypeInner {
             }
         }
 
+        let mutex = mem::take(&mut old.free_list);
+        let mut result = mutex.lock().unwrap();
+        result.shrink_to(1);
+        drop(result);
         Self {
             component_offsets: old.component_offsets.clone(),
             components: old.components.clone(),
             entity_data: new_data.into_boxed_slice(),
             entities_len: mem::take(&mut old.entities_len),
             home_ptr: NonNull::new(ptr).unwrap(),
+            free_list: mutex,
         }
     }
 }

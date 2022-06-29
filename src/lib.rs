@@ -1,4 +1,5 @@
 use std::time::Instant;
+use crate::entities::entity::Entity;
 use crate::world::WorldError;
 
 pub mod archetypes;
@@ -94,7 +95,7 @@ pub fn test() {
     for _ in 0..2048 {
         for i in 0..255 {
             let entity = world.entities.get_location(i).unwrap();
-            let index = entity.get_index();
+            let index = entity.index;
             let option = player
                 .get_comp::<(tests::Position, tests::Health)>(index).unwrap();
         }
@@ -133,9 +134,62 @@ pub fn entities_realloc() {
     for _ in 0..2048 {
         for i in 0..1024 {
             let entity = world.entities.get_location(i).unwrap();
-            let index = entity.get_index();
+                let index = entity.index;
             let option = player
                 .get_comp::<(tests::Position, tests::Health)>(index).unwrap();
         }
+    }
+}
+
+#[test]
+pub fn random_delete_an_add() {
+    let mut world = world::World::new(256);
+    world.add_archetype::<tests::Player>(256);
+    for i in 0..1024 {
+        if !world.entities.entities_left() {
+            world.increase_entities(Some(256)).unwrap();
+        }
+        if let Err(error) = world
+            .add_entity(tests::Player {
+                position: tests::Position { x: 0.0, y: 0.0 },
+                health: tests::Health {
+                    health: 100.0,
+                    food: 100.0,
+                },
+            }) {
+            match error {
+                WorldError::TooManyEntitiesInArchetype => {
+                    let option = world.take_archetype::<tests::Player>().unwrap();
+                    let archetype = option.resize(Some(256)).unwrap();
+                    world.push_archetype::<tests::Player>(archetype);
+                }
+                _ => {}
+            }
+        }
+    }
+    for _ in 0..256{
+
+        let random1: u8 = rand::random();
+        let entity = Entity::from(random1 as u32) ;
+
+        world.remove_entity(entity);
+        let player = world.archetypes.get(&0).unwrap();
+
+        let (entity, id) = world.add_entity(tests::Player {
+            position: tests::Position { x: 0.0, y: 0.0 },
+            health: tests::Health {
+                health: 100.0,
+                food: 50.0,
+            },
+        }).unwrap();
+
+        assert_eq!(entity.id, random1 as u32);
+
+        if player
+            .get_comp::<(tests::Health)>(id.index).is_err(){
+            println!(" {:?}", id);
+            println!(" {:?}", entity );
+
+        };
     }
 }
