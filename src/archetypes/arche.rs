@@ -72,6 +72,7 @@ impl EntityData {
 /// ```
 ///
 ///
+#[derive(Debug, Clone)]
 pub struct Archetype(pub(crate) Arc<ArchetypeInner>);
 
 impl Archetype {

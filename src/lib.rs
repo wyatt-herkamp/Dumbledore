@@ -1,4 +1,5 @@
 use std::time::Instant;
+use crate::world::WorldError;
 
 pub mod archetypes;
 pub mod component;
@@ -36,8 +37,8 @@ pub mod tests {
 
     impl Bundle for Player {
         fn into_component_ptrs(mut self) -> Box<[(ComponentInfo, NonNull<u8>)]>
-        where
-            Self: Sized,
+            where
+                Self: Sized,
         {
             let position = &mut self.position as *mut Position;
             let health = &mut self.health as *mut Health;
@@ -54,8 +55,8 @@ pub mod tests {
         }
 
         fn component_info() -> Vec<ComponentInfo>
-        where
-            Self: Sized,
+            where
+                Self: Sized,
         {
             vec![
                 ComponentInfo::new::<Position>(),
@@ -64,8 +65,8 @@ pub mod tests {
         }
 
         fn archetype_id() -> u32
-        where
-            Self: Sized,
+            where
+                Self: Sized,
         {
             0
         }
@@ -92,7 +93,6 @@ pub fn test() {
 
     for _ in 0..2048 {
         for i in 0..255 {
-
             let entity = world.entities.get_location(i).unwrap();
             let index = entity.get_index();
             let option = player
@@ -100,5 +100,42 @@ pub fn test() {
         }
     }
     println!("Finished in: {}", now.elapsed().as_millis());
+}
 
+#[test]
+pub fn entities_realloc() {
+    let mut world = world::World::new(256);
+    world.add_archetype::<tests::Player>(256);
+    for i in 0..1024 {
+        if !world.entities.entities_left() {
+            world.increase_entities(Some(256)).unwrap();
+        }
+        if let Err(error) = world
+            .add_entity(tests::Player {
+                position: tests::Position { x: 0.0, y: 0.0 },
+                health: tests::Health {
+                    health: 100.0,
+                    food: 100.0,
+                },
+            }) {
+            match error {
+                WorldError::TooManyEntitiesInArchetype => {
+                    let option = world.take_archetype::<tests::Player>().unwrap();
+                    let archetype = option.resize(Some(256)).unwrap();
+                    world.push_archetype::<tests::Player>(archetype);
+                }
+                _ => {}
+            }
+        }
+    }
+    let player = world.archetypes.get(&0).unwrap();
+
+    for _ in 0..2048 {
+        for i in 0..1024 {
+            let entity = world.entities.get_location(i).unwrap();
+            let index = entity.get_index();
+            let option = player
+                .get_comp::<(tests::Position, tests::Health)>(index).unwrap();
+        }
+    }
 }
