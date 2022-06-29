@@ -1,4 +1,3 @@
-
 use crate::entities::entity::{Entity, EntityLocation, EntityMeta};
 use std::mem;
 use std::num::NonZeroU32;
@@ -63,13 +62,13 @@ impl EntitySet {
         if !self.entities_left() {
             panic!("Too many entities in the world!");
         }
-      let id=  if let Some(pop) = self.0.free_list.lock().unwrap().pop() {
+        let id = if let Some(pop) = self.0.free_list.lock().unwrap().pop() {
             pop
-        }else{
+        } else {
             self.0.length.fetch_add(1, Ordering::Relaxed) as usize
         };
         let guard = self.0.entities[id as usize].lock().unwrap();
-        
+
         Entity {
             generation: guard.generation,
             id: id as u32,

@@ -4,8 +4,7 @@ use crate::entities::entity::{Entity, EntityLocation};
 use crate::entities::entity_set::{EntitySet, EntitySetInner};
 use std::collections::BTreeMap;
 
-
-use std::sync::{Arc, atomic};
+use std::sync::{atomic, Arc};
 
 #[derive(Clone, Debug)]
 pub struct World {
@@ -51,8 +50,14 @@ impl World {
     ///
     /// It is also marked at locked preventing updates to it
     pub fn increase_entities(&mut self, increase: Option<u32>) -> Result<(), WorldError> {
-        self.entities.0.locked.store(true, atomic::Ordering::Relaxed);
-        let inner = self.entities.0.reallocate(increase.unwrap_or(self.entities.0.entities.len() as u32));
+        self.entities
+            .0
+            .locked
+            .store(true, atomic::Ordering::Relaxed);
+        let inner = self
+            .entities
+            .0
+            .reallocate(increase.unwrap_or(self.entities.0.entities.len() as u32));
         self.entities = EntitySet(Arc::new(inner));
         Ok(())
     }

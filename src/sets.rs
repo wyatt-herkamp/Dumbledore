@@ -5,8 +5,8 @@ pub(crate) struct TypeIdSet<V: Clone>(pub(crate) Box<[(TypeId, V)]>);
 
 impl<V: Clone> TypeIdSet<V> {
     pub fn new<Content>(contents: Content) -> Self
-        where
-            Content: Iterator<Item=(TypeId, V)>,
+    where
+        Content: Iterator<Item = (TypeId, V)>,
     {
         let mut contents = contents.collect::<Box<[_]>>();
         contents.sort_unstable_by_key(|&(id, _)| id);

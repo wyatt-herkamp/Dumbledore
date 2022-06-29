@@ -1,13 +1,11 @@
 use std::num::NonZeroU32;
 
-
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entity {
     pub(crate) generation: NonZeroU32,
     pub id: u32,
 }
-impl From<u32> for Entity{
+impl From<u32> for Entity {
     fn from(id: u32) -> Self {
         Entity {
             generation: NonZeroU32::new(1).unwrap(),
@@ -37,4 +35,3 @@ pub struct EntityLocation {
     // Index in the archetype - Could change whenever an entity is moved.
     pub index: u32,
 }
-

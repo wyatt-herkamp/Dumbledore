@@ -1,11 +1,10 @@
 use std::alloc::{alloc, dealloc, Layout};
 
-
-use std::fmt::{Debug};
-use std::{mem};
+use std::fmt::Debug;
+use std::mem;
 
 use crate::archetypes::ComponentInfo;
-use crate::component::{ComponentLookup};
+use crate::component::ComponentLookup;
 
 use crate::sets::TypeIdSet;
 use std::ptr::{copy_nonoverlapping, NonNull};
@@ -114,8 +113,8 @@ impl Archetype {
     /// # Returns
     /// The index for the Entity in the Archetype.
     pub fn add_entity<'data, Data>(&self, entity_id: u32, comps: Data) -> u32
-        where
-            Data: Iterator<Item=&'data (ComponentInfo, NonNull<u8>)>,
+    where
+        Data: Iterator<Item = &'data (ComponentInfo, NonNull<u8>)>,
     {
         let mut result = self.0.free_list.lock().unwrap();
         let id = if let Some(pop) = result.pop() {
@@ -198,7 +197,12 @@ impl Archetype {
             T::return_mut(|typ| {
                 if let Some((offset, index)) = self.0.component_offsets.get(typ) {
                     let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
-                    let v = anti_racey_byte.compare_exchange(0, 255, Ordering::Relaxed, Ordering::Relaxed);
+                    let v = anti_racey_byte.compare_exchange(
+                        0,
+                        255,
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    );
                     if v.is_ok() {
                         Some((anti_racey_byte.clone(), ptr.add(*offset)))
                     } else {
@@ -210,7 +214,6 @@ impl Archetype {
             })
         };
 
-
         Ok(data)
     }
 
@@ -220,7 +223,10 @@ impl Archetype {
     /// Ok(Option<MutComponentRef>) if was component is unlocked.
     /// Err(()) if the component is locked.
     #[allow(clippy::result_unit_err)]
-    pub fn get_comp<'comp, T: ComponentLookup<'comp>>(&self, entity_index: u32) -> Result<Option<T::RefResponse>, ()> {
+    pub fn get_comp<'comp, T: ComponentLookup<'comp>>(
+        &self,
+        entity_index: u32,
+    ) -> Result<Option<T::RefResponse>, ()> {
         let inner = &self.0;
 
         if entity_index >= inner.entities_len.load(Ordering::Relaxed) {
@@ -236,7 +242,10 @@ impl Archetype {
                     let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
                     let v = anti_racey_byte.fetch_add(1, Ordering::Relaxed);
                     if v < 254 {
-                        Some((anti_racey_byte.clone(), data.inner_ptrs.load(Ordering::Relaxed).add(*offset)))
+                        Some((
+                            anti_racey_byte.clone(),
+                            data.inner_ptrs.load(Ordering::Relaxed).add(*offset),
+                        ))
                     } else {
                         None
                     }
@@ -245,7 +254,6 @@ impl Archetype {
                 }
             })
         };
-
 
         Ok(data)
     }
@@ -323,7 +331,11 @@ impl ArchetypeInner {
         for (index, data) in old_entities.iter_mut().enumerate() {
             unsafe {
                 let new_pointer = ptr.add(total_size * index);
-                copy_nonoverlapping(data.inner_ptrs.load(Ordering::Relaxed), new_pointer, total_size);
+                copy_nonoverlapping(
+                    data.inner_ptrs.load(Ordering::Relaxed),
+                    new_pointer,
+                    total_size,
+                );
                 new_data.push(EntityData {
                     inner_ptrs: AtomicPtr::new(new_pointer),
                     entity_id: mem::take(&mut data.entity_id),
@@ -377,7 +389,7 @@ impl Drop for ArchetypeInner {
                 break;
             }
             for (comp, (_ty, (offset, _))) in
-            self.components.iter().zip(self.component_offsets.0.iter())
+                self.components.iter().zip(self.component_offsets.0.iter())
             {
                 unsafe {
                     let ptr = data.inner_ptrs.load(Ordering::Relaxed).add(*offset);

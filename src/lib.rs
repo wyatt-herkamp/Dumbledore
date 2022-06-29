@@ -5,6 +5,8 @@ pub mod component_ref;
 pub mod entities;
 pub mod sets;
 pub mod world;
+#[cfg(feature = "dumbledore-macro")]
+pub use dumbledore_macro::Bundle;
 
 #[cfg(test)]
 pub mod tests {

@@ -1,16 +1,15 @@
 use crate::archetypes::ComponentInfo;
 use std::any::TypeId;
 
-
-use std::ptr::NonNull;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU8;
 use crate::component_ref::{ComponentRef, MutComponentRef};
+use std::ptr::NonNull;
+use std::sync::atomic::AtomicU8;
+use std::sync::Arc;
 
 pub trait Component: Send + Sync + 'static {
     fn component_info() -> ComponentInfo
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         ComponentInfo::new::<Self>()
     }
@@ -21,33 +20,43 @@ pub trait Component: Send + Sync + 'static {
 /// A Trait that can be converted into a Archetype.
 pub trait Bundle {
     fn into_component_ptrs(self) -> Box<[(ComponentInfo, NonNull<u8>)]>
-        where
-            Self: Sized;
+    where
+        Self: Sized;
     /// Should be ordered Largest to Smallest
     fn component_info() -> Vec<ComponentInfo>
-        where
-            Self: Sized;
+    where
+        Self: Sized;
     /// Should be a unique identifier for this Bundle.
     /// this can be used to tell the World to query a specific Archetype
     fn archetype_id() -> u32
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 }
 
 pub trait ComponentLookup<'comp> {
     type MutResponse;
     type RefResponse;
     #[allow(clippy::missing_safety_doc)]
-    unsafe fn return_ref<GE>(get_entity: GE) -> Option<Self::RefResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>;
+    unsafe fn return_ref<GE>(get_entity: GE) -> Option<Self::RefResponse>
+    where
+        Self: Sized,
+        GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>;
     #[allow(clippy::missing_safety_doc)]
-    unsafe fn return_mut<GE>(get_entity: GE) -> Option<Self::MutResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>;
+    unsafe fn return_mut<GE>(get_entity: GE) -> Option<Self::MutResponse>
+    where
+        Self: Sized,
+        GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>;
 }
 
 impl<'comp, C: Component> ComponentLookup<'comp> for C {
     type MutResponse = MutComponentRef<'comp, C>;
     type RefResponse = ComponentRef<'comp, C>;
 
-    unsafe fn return_ref<GE>(get_entity: GE) -> Option<Self::RefResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)> {
+    unsafe fn return_ref<GE>(get_entity: GE) -> Option<Self::RefResponse>
+    where
+        Self: Sized,
+        GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>,
+    {
         if let Some((arc, ptr)) = get_entity(&TypeId::of::<C>()) {
             let x = &*ptr.cast();
             Some(ComponentRef {
@@ -59,7 +68,11 @@ impl<'comp, C: Component> ComponentLookup<'comp> for C {
         }
     }
 
-    unsafe fn return_mut<GE>(get_entity: GE) -> Option<Self::MutResponse> where Self: Sized, GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)> {
+    unsafe fn return_mut<GE>(get_entity: GE) -> Option<Self::MutResponse>
+    where
+        Self: Sized,
+        GE: Fn(&TypeId) -> Option<(Arc<AtomicU8>, *mut u8)>,
+    {
         if let Some((arc, ptr)) = get_entity(&TypeId::of::<C>()) {
             let x = &mut *ptr.cast();
             Some(MutComponentRef {
@@ -71,7 +84,6 @@ impl<'comp, C: Component> ComponentLookup<'comp> for C {
         }
     }
 }
-
 
 ///
 /// Implements ComponentLookup for a tuple
@@ -144,30 +156,28 @@ macro_rules! define_lookup {
     }
 }
 
-
-
-define_lookup!(A,B);
-define_lookup!(A,B,C);
-define_lookup!(A,B,C,D);
-define_lookup!(A,B,C,D,E);
-define_lookup!(A,B,C,D,E,F);
-define_lookup!(A,B,C,D,E,F,G);
-define_lookup!(A,B,C,D,E,F,G,H);
-define_lookup!(A,B,C,D,E,F,G,H,I);
-define_lookup!(A,B,C,D,E,F,G,H,I,J);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y);
-define_lookup!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z);
+define_lookup!(A, B);
+define_lookup!(A, B, C);
+define_lookup!(A, B, C, D);
+define_lookup!(A, B, C, D, E);
+define_lookup!(A, B, C, D, E, F);
+define_lookup!(A, B, C, D, E, F, G);
+define_lookup!(A, B, C, D, E, F, G, H);
+define_lookup!(A, B, C, D, E, F, G, H, I);
+define_lookup!(A, B, C, D, E, F, G, H, I, J);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y);
+define_lookup!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
