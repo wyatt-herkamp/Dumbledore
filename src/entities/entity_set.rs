@@ -1,9 +1,9 @@
-use crate::archetypes::arche::EntityData;
+
 use crate::entities::entity::{Entity, EntityLocation, EntityMeta};
 use std::mem;
 use std::num::NonZeroU32;
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct EntitySet(pub Arc<EntitySetInner>);
@@ -69,11 +69,11 @@ impl EntitySet {
             self.0.length.fetch_add(1, Ordering::Relaxed) as usize
         };
         let guard = self.0.entities[id as usize].lock().unwrap();
-        let entity = Entity {
+        
+        Entity {
             generation: guard.generation,
             id: id as u32,
-        };
-        entity
+        }
     }
     pub fn push_location(&self, entity: &Entity, location: EntityLocation) {
         if self.is_locked() {

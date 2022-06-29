@@ -1,8 +1,4 @@
-use std::thread;
-use std::time::Instant;
-use crate::entities::entity::Entity;
-use crate::world::WorldError;
-
+#[allow(dead_code)]
 pub mod archetypes;
 pub mod component;
 pub mod component_ref;
@@ -91,7 +87,7 @@ pub fn test() {
             .unwrap();
     }
     let player = world.archetypes.get(&0).unwrap();
-    let now = Instant::now();
+    let now = std::time::Instant::now();
 
     for _ in 0..2048 {
         for i in 0..255 {
@@ -121,7 +117,7 @@ pub fn entities_realloc() {
                 },
             }) {
             match error {
-                WorldError::TooManyEntitiesInArchetype => {
+                crate::world::WorldError::TooManyEntitiesInArchetype => {
                     let option = world.take_archetype::<tests::Player>().unwrap();
                     let archetype = option.resize(Some(256)).unwrap();
                     world.push_archetype::<tests::Player>(archetype);
@@ -135,7 +131,7 @@ pub fn entities_realloc() {
     for _ in 0..2048 {
         for i in 0..1024 {
             let entity = world.entities.get_location(i).unwrap();
-                let index = entity.index;
+            let index = entity.index;
             let option = player
                 .get_comp::<(tests::Position, tests::Health)>(index).unwrap();
         }
@@ -159,7 +155,7 @@ pub fn random_delete_an_add() {
                 },
             }) {
             match error {
-                WorldError::TooManyEntitiesInArchetype => {
+                crate::world::WorldError::TooManyEntitiesInArchetype => {
                     let option = world.take_archetype::<tests::Player>().unwrap();
                     let archetype = option.resize(Some(256)).unwrap();
                     world.push_archetype::<tests::Player>(archetype);
@@ -168,10 +164,9 @@ pub fn random_delete_an_add() {
             }
         }
     }
-    for _ in 0..256{
-
+    for _ in 0..256 {
         let random1: u8 = rand::random();
-        let entity = Entity::from(random1 as u32) ;
+        let entity = crate::entities::entity::Entity::from(random1 as u32);
 
         world.remove_entity(entity);
         let player = world.archetypes.get(&0).unwrap();
@@ -187,56 +182,9 @@ pub fn random_delete_an_add() {
         assert_eq!(entity.id, random1 as u32);
 
         if player
-            .get_comp::<(tests::Health)>(id.index).is_err(){
+            .get_comp::<(tests::Health)>(id.index).is_err() {
             println!(" {:?}", id);
-            println!(" {:?}", entity );
-
+            println!(" {:?}", entity);
         };
-    }
-}
-#[test]
-pub fn thread_tests(){
-    let mut world = world::World::new(256);
-    world.add_archetype::<tests::Player>(256);
-    for i in 0..1024 {
-        if !world.entities.entities_left() {
-            world.increase_entities(Some(256)).unwrap();
-        }
-        if let Err(error) = world
-            .add_entity(tests::Player {
-                position: tests::Position { x: 0.0, y: 0.0 },
-                health: tests::Health {
-                    health: 100.0,
-                    food: 100.0,
-                },
-            }) {
-            match error {
-                WorldError::TooManyEntitiesInArchetype => {
-                    let option = world.take_archetype::<tests::Player>().unwrap();
-                    let archetype = option.resize(Some(256)).unwrap();
-                    world.push_archetype::<tests::Player>(archetype);
-                }
-                _ => {}
-            }
-        }
-    }
-
-
-    for i in 0..10 {
-        let world_one = world.clone();
-        thread::spawn(||{
-            let world = world_one;
-            let player = world.archetypes.get(&0).unwrap();
-
-            for _ in 0..2048 {
-                for i in 0..255 {
-                    let entity = world.entities.get_location(i).unwrap();
-                    let index = entity.index;
-                    let option = player
-                        .get_comp_mut::<(tests::Position, tests::Health)>(index).unwrap();
-                    println!("{:?}", option);
-                }
-            }
-        });
     }
 }

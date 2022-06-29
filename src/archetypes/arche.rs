@@ -1,17 +1,15 @@
 use std::alloc::{alloc, dealloc, Layout};
-use std::any::TypeId;
 
-use std::cell::UnsafeCell;
-use std::collections::BTreeSet;
-use std::fmt::{Debug, Formatter};
-use std::{io, mem};
+
+use std::fmt::{Debug};
+use std::{mem};
 
 use crate::archetypes::ComponentInfo;
-use crate::component::{Component, ComponentLookup};
-use crate::component_ref::{ComponentRef, MutComponentRef};
+use crate::component::{ComponentLookup};
+
 use crate::sets::TypeIdSet;
 use std::ptr::{copy_nonoverlapping, NonNull};
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Contains a Slice of AtomicU8s being the RwLock status of each component within the entity.
@@ -115,25 +113,24 @@ impl Archetype {
     ///
     /// # Returns
     /// The index for the Entity in the Archetype.
-    pub unsafe fn add_entity<'data, Data>(&self, entity_id: u32, comps: Data) -> u32
+    pub fn add_entity<'data, Data>(&self, entity_id: u32, comps: Data) -> u32
         where
             Data: Iterator<Item=&'data (ComponentInfo, NonNull<u8>)>,
     {
         let mut result = self.0.free_list.lock().unwrap();
-        let id =if let Some(pop) = result.pop() {
+        let id = if let Some(pop) = result.pop() {
             drop(result);
             pop
         } else {
             drop(result);
-            let id = self.0.entities_len.fetch_add(1, Ordering::Relaxed);
-            id
+
+            self.0.entities_len.fetch_add(1, Ordering::Relaxed)
         };
         let data = &self.0.entity_data[id as usize];
         data.entity_id.store(entity_id, Ordering::Relaxed);
         let ptr = data.inner_ptrs.load(Ordering::Relaxed);
 
         for (ty, raw_pointer) in comps {
-
             let (offset, _index) = *self
                 .0
                 .component_offsets
@@ -145,13 +142,15 @@ impl Archetype {
                     )
                 })
                 .unwrap();
-
-            let x = ptr.add(offset as usize);
-            copy_nonoverlapping(raw_pointer.as_ptr(), x, ty.layout.size());
+            unsafe {
+                let x = ptr.add(offset as usize);
+                copy_nonoverlapping(raw_pointer.as_ptr(), x, ty.layout.size());
+            }
         }
         id
     }
     /// Returns Err(()) if the entity is locked. However, this does mark the entity as locking so data can not be read anymore
+    #[allow(clippy::result_unit_err)]
     pub fn remove(&self, index: u32) -> Result<(), ()> {
         let data = &self.0.entity_data[index as usize];
         data.mark_locking();
@@ -179,6 +178,7 @@ impl Archetype {
     /// # Returns
     /// Ok(Option<MutComponentRef>) if was component is unlocked.
     /// Err(()) if the component is locked.
+    #[allow(clippy::result_unit_err)]
     pub fn get_comp_mut<'comp, T: ComponentLookup<'comp>>(
         &self,
         entity_index: u32,
@@ -207,10 +207,6 @@ impl Archetype {
                 } else {
                     None
                 }
-            }, |data| {
-                for (arc, _) in data.into_iter() {
-                    arc.fetch_sub(255, Ordering::Relaxed);
-                }
             })
         };
 
@@ -223,6 +219,7 @@ impl Archetype {
     /// # Returns
     /// Ok(Option<MutComponentRef>) if was component is unlocked.
     /// Err(()) if the component is locked.
+    #[allow(clippy::result_unit_err)]
     pub fn get_comp<'comp, T: ComponentLookup<'comp>>(&self, entity_index: u32) -> Result<Option<T::RefResponse>, ()> {
         let inner = &self.0;
 
@@ -245,10 +242,6 @@ impl Archetype {
                     }
                 } else {
                     None
-                }
-            }, |data| {
-                for (arc, _) in data.into_iter() {
-                    arc.fetch_sub(1, Ordering::Relaxed);
                 }
             })
         };
@@ -278,32 +271,32 @@ impl ArchetypeInner {
     pub(crate) fn new(mut components: Vec<ComponentInfo>, entity_start_size: usize) -> Self {
         components.sort_unstable_by_key(|c| c.id);
         let total_size = components.iter().map(|c| c.layout.size()).sum::<usize>();
-            let ptr = unsafe {
-                alloc(Layout::from_size_align_unchecked(
-                    total_size * entity_start_size,
-                    8,
-                ))
-            };
-            let mut data = Vec::with_capacity(entity_start_size);
-            for entity_index in 0..entity_start_size {
-                unsafe {
-                    data.push(EntityData {
-                        inner_ptrs: AtomicPtr::new(ptr.add(total_size * entity_index)),
-                        entity_id: AtomicU32::new(0),
-                        locked: AtomicU8::new(0),
-                        anti_racey_bytes: components
-                            .iter()
-                            .map(|_| Arc::new(AtomicU8::new(0)))
-                            .collect(),
-                    });
-                }
+        let ptr = unsafe {
+            alloc(Layout::from_size_align_unchecked(
+                total_size * entity_start_size,
+                8,
+            ))
+        };
+        let mut data = Vec::with_capacity(entity_start_size);
+        for entity_index in 0..entity_start_size {
+            unsafe {
+                data.push(EntityData {
+                    inner_ptrs: AtomicPtr::new(ptr.add(total_size * entity_index)),
+                    entity_id: AtomicU32::new(0),
+                    locked: AtomicU8::new(0),
+                    anti_racey_bytes: components
+                        .iter()
+                        .map(|_| Arc::new(AtomicU8::new(0)))
+                        .collect(),
+                });
             }
+        }
 
         let mut offset = 0;
         let map = components.iter().enumerate().map(|(index, v)| {
             let my_offset = offset;
             offset += v.layout.size();
-            (v.id.clone(), (my_offset, index as u32))
+            (v.id, (my_offset, index as u32))
         });
         //
         Self {
@@ -343,7 +336,7 @@ impl ArchetypeInner {
             unsafe {
                 let new_pointer = ptr.add(total_size * i);
                 new_data.push(EntityData {
-                    inner_ptrs:AtomicPtr::new(new_pointer),
+                    inner_ptrs: AtomicPtr::new(new_pointer),
                     entity_id: AtomicU32::new(0),
                     locked: AtomicU8::new(0),
                     anti_racey_bytes: old

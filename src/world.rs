@@ -1,11 +1,10 @@
-use std::cmp::Ordering;
 use crate::archetypes::arche::{Archetype, ArchetypeInner};
 use crate::component::Bundle;
 use crate::entities::entity::{Entity, EntityLocation};
 use crate::entities::entity_set::{EntitySet, EntitySetInner};
 use std::collections::BTreeMap;
-use std::panic::Location;
-use std::sync::atomic::AtomicU32;
+
+
 use std::sync::{Arc, atomic};
 
 #[derive(Clone, Debug)]
@@ -61,10 +60,10 @@ impl World {
         let option = self.entities.free(entity);
         if let Some(index) = option {
             let x = self.archetypes.get(&index.archetype).unwrap();
-            if x.remove(index.index).is_err(){
+            if x.remove(index.index).is_err() {
                 panic!("Tried to remove an entity that was not in the archetype");
             }
-        }else{
+        } else {
             panic!("Tried to remove an entity that was not in the world");
         }
     }
@@ -83,7 +82,7 @@ impl World {
             return Err(WorldError::TooManyEntitiesInArchetype);
         }
         let entity = self.entities.alloc();
-        let data = unsafe { archetype.add_entity(entity.id, bundle.into_component_ptrs().iter()) };
+        let data = archetype.add_entity(entity.id, bundle.into_component_ptrs().iter());
         self.entities.push_location(
             &entity,
             EntityLocation {

@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
-use std::sync::atomic::AtomicU32;
-use std::sync::Arc;
+
+
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entity {
@@ -30,7 +30,7 @@ impl Default for EntityMeta {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct EntityLocation {
     // Archetype ID - Will rarely change.
     pub archetype: u32,
@@ -38,11 +38,3 @@ pub struct EntityLocation {
     pub index: u32,
 }
 
-impl Default for EntityLocation {
-    fn default() -> Self {
-        EntityLocation {
-            archetype: 0,
-            index:0,
-        }
-    }
-}
