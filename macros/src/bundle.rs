@@ -63,16 +63,16 @@ pub(crate) fn process_bundle(input: DeriveInput, en: DataStruct) -> Result<Token
     match &en.fields {
         Fields::Named(named) => {
             named.named.iter().for_each(|field| {
-                components.push(field.ty.clone());
-            });
-            comp_refs = named.named.iter().map(|field| {
                 let ident = field.ident.clone().unwrap();
                 let typ = &field.ty;
-                quote! {
+                components.push(field.ty.clone());
+
+                comp_refs.push(quote! {
                     let #ident = &mut self.#ident as *mut #typ;
-                    components.push(#ident);
+                    components.push((dumbledore::archetypes::ComponentInfo::new::<#typ>(),std::ptr::NonNull::new_unchecked(#ident as *mut u8)));
                 }
-            }).collect();
+                );
+            });
         }
         Fields::Unnamed(not_named) => {
             not_named.unnamed.iter().for_each(|field| {
@@ -100,10 +100,12 @@ pub(crate) fn process_bundle(input: DeriveInput, en: DataStruct) -> Result<Token
     }
     Ok(quote! {
         impl dumbledore::component::Bundle for #ident {
-            fn into_component_ptrs(self) -> Box<[(dumbledore::archetypes::ComponentInfo, NonNull<u8>)]>
+            fn into_component_ptrs(mut self) -> Box<[(dumbledore::archetypes::ComponentInfo, std::ptr::NonNull<u8>)]>
                 where Self: Sized {
                 let mut components = Vec::with_capacity(#size);
-
+                unsafe{
+                    #(#comp_refs)*
+                }
                 return components.into_boxed_slice();
             }
             fn component_info() -> Vec<dumbledore::archetypes::ComponentInfo>  where Self: Sized {
