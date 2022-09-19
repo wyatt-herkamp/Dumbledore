@@ -5,6 +5,7 @@ use crate::entities::entity_set::{EntitySet, EntitySetInner};
 use std::collections::BTreeMap;
 
 use std::sync::{atomic, Arc};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// The World is the central access point to the data in ECS environment.
 #[derive(Clone, Debug)]
@@ -81,9 +82,9 @@ impl World {
     /// * `entity` - The entity to remove.
     pub fn remove_entity<E: Into<u32>>(&mut self, entity: E) {
         let option = self.entities.free(entity);
-        if let Some(index) = option {
-            let x = self.archetypes.get(&index.archetype).unwrap();
-            if x.remove(index.index).is_err() {
+        if let Some((index, arch)) = option {
+            let x = self.archetypes.get(&arch).unwrap();
+            if x.remove(index).is_err() {
                 panic!("Tried to remove an entity that was not in the archetype");
             }
         } else {
@@ -109,8 +110,8 @@ impl World {
         self.entities.push_location(
             &entity,
             EntityLocation {
-                archetype: B::archetype_id(),
-                index: data,
+                archetype: Arc::new(AtomicU32::new(B::archetype_id())),
+                index: Arc::new(AtomicU32::new(data)),
             },
         );
         let location = self.entities.get_location(entity.id).unwrap();

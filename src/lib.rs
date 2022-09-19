@@ -94,7 +94,7 @@ pub mod tests {
         for _ in 0..2048 {
             for i in 0..255 {
                 let entity = world.get_entities().get_location(i).unwrap();
-                let index = entity.index;
+                let index = entity.index();
                 let option = player
                     .get_comp::<(Position, Health)>(index).unwrap();
             }
@@ -133,7 +133,7 @@ pub mod tests {
         for _ in 0..2048 {
             for i in 0..1024 {
                 let entity = world.get_entities().get_location(i).unwrap();
-                let index = entity.index;
+                let index = entity.index();
                 let option = player
                     .get_comp::<(Position, Health)>(index).unwrap();
             }
@@ -184,7 +184,7 @@ pub mod tests {
             assert_eq!(entity.id, random1 as u32);
 
             if player
-                .get_comp::<(Health)>(id.index).is_err() {
+                .get_comp::<(Health)>(id.index()).is_err() {
                 println!(" {:?}", id);
                 println!(" {:?}", entity);
             };

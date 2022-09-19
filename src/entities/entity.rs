@@ -1,4 +1,6 @@
 use std::num::NonZeroU32;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entity {
@@ -20,17 +22,17 @@ impl Into<u32> for Entity{
 }
 #[derive(Clone, Debug)]
 pub struct EntityMeta {
-    pub(crate) generation: NonZeroU32,
-    pub in_use: bool,
-    pub location: EntityLocation,
+    pub(crate) generation: Arc<AtomicU32>,
+    pub in_use:  Arc<AtomicBool>,
+    pub location:  EntityLocation,
 }
 
 impl Default for EntityMeta {
     fn default() -> Self {
         EntityMeta {
-            generation: NonZeroU32::new(1).unwrap(),
-            in_use: false,
-            location: EntityLocation::default(),
+            generation: AtomicU32::new(1).into(),
+            in_use: AtomicBool::new(false).into(),
+            location: EntityLocation::default().into(),
         }
     }
 }
@@ -38,7 +40,12 @@ impl Default for EntityMeta {
 #[derive(Clone, Debug, Default)]
 pub struct EntityLocation {
     // Archetype ID - Will rarely change.
-    pub archetype: u32,
+    pub archetype:  Arc<AtomicU32>,
     // Index in the archetype - Could change whenever an entity is moved.
-    pub index: u32,
+    pub index: Arc<AtomicU32>,
+}
+impl EntityLocation{
+    pub fn index(&self) -> u32 {
+        self.index.load(Ordering::Relaxed)
+    }
 }

@@ -11,5 +11,6 @@ repository = "https://github.com/axolotl-rs/dumbledore"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 dumbledore-macro = { path = "macros", optional = true }
+lockfree = { git = "https://github.com/wyatt-herkamp/tux_lockfree.git", package = "tux_lockfree" }
 [dev-dependencies]
 rand = "0.8.5"
