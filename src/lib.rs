@@ -1,10 +1,12 @@
-#[allow(dead_code)]
+#![allow(dead_code,clippy::from_over_into)]
+
 pub mod archetypes;
 pub mod component;
 pub mod component_ref;
 pub mod entities;
 pub mod sets;
 pub mod world;
+
 #[cfg(feature = "dumbledore-macro")]
 pub use dumbledore_macro::Bundle;
 
@@ -75,7 +77,7 @@ pub mod tests {
 
     #[test]
     pub fn test() {
-        let mut world =World::new(256);
+        let mut world = World::new(256);
         world.add_archetype::<Player>(256);
         for i in 0..255 {
             world
