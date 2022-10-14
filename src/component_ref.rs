@@ -83,6 +83,6 @@ impl<T: Component> AsRef<T> for MutComponentRef<'_, T> {
 
 impl<T: Component> AsMut<T> for MutComponentRef<'_, T> {
     fn as_mut(&mut self) -> &mut T {
-       self.component
+        self.component
     }
 }

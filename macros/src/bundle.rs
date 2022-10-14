@@ -1,11 +1,11 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
+use syn::parse::ParseStream;
 use syn::{DataStruct, DeriveInput, LitBool, LitInt, Result};
 use syn::{Fields, Ident};
-use syn::parse::ParseStream;
 
 mod bundle_attrs {
     syn::custom_keyword!(id);

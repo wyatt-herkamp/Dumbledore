@@ -4,3 +4,4 @@
 Cargo.lock
 macros/target
 tests/target
+.fleet/

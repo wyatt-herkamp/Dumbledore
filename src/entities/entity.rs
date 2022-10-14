@@ -13,7 +13,7 @@ impl From<u32> for Entity {
         }
     }
 }
-impl Into<u32> for Entity{
+impl Into<u32> for Entity {
     fn into(self) -> u32 {
         self.id
     }

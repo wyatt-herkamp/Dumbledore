@@ -113,10 +113,13 @@ impl EntitySet {
         }
         let guard = self.0.entities[entity as usize].lock().unwrap();
         if guard.in_use {
-            Some((Entity {
-                generation: guard.generation,
-                id: entity,
-            }, guard.location.clone()))
+            Some((
+                Entity {
+                    generation: guard.generation,
+                    id: entity,
+                },
+                guard.location.clone(),
+            ))
         } else {
             None
         }
