@@ -13,3 +13,5 @@ repository = "https://github.com/axolotl-rs/dumbledore"
 dumbledore-macro = { path = "macros", optional = true }
 [dev-dependencies]
 rand = "0.8.5"
+[features]
+default = ["dumbledore-macro"]

@@ -9,6 +9,8 @@ pub mod world;
 
 #[cfg(feature = "dumbledore-macro")]
 pub use dumbledore_macro::Bundle;
+#[cfg(feature = "dumbledore-macro")]
+pub use dumbledore_macro::Component;
 
 #[cfg(test)]
 pub mod tests {
@@ -16,23 +18,19 @@ pub mod tests {
     use crate::component::{Bundle, Component};
     use crate::world::World;
     use std::ptr::NonNull;
+    use dumbledore_macro::Component;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone,Component)]
     pub struct Position {
         pub x: f32,
         pub y: f32,
     }
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Component)]
     pub struct Health {
         pub health: f32,
         pub food: f32,
     }
-
-    impl Component for Position {}
-
-    impl Component for Health {}
-
     pub struct Player {
         pub position: Position,
         pub health: Health,
