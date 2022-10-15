@@ -17,10 +17,10 @@ pub mod tests {
     use crate::archetypes::ComponentInfo;
     use crate::component::{Bundle, Component};
     use crate::world::World;
-    use std::ptr::NonNull;
     use dumbledore_macro::Component;
+    use std::mem;
 
-    #[derive(Debug, Clone,Component)]
+    #[derive(Debug, Clone, Component)]
     pub struct Position {
         pub x: f32,
         pub y: f32,
@@ -31,28 +31,29 @@ pub mod tests {
         pub health: f32,
         pub food: f32,
     }
+
     pub struct Player {
         pub position: Position,
         pub health: Health,
     }
 
     impl Bundle for Player {
-        fn into_component_ptrs(mut self) -> Box<[(ComponentInfo, NonNull<u8>)]>
+        unsafe fn put_self(self, mut f: impl FnMut(*mut u8, ComponentInfo))
         where
             Self: Sized,
         {
-            let position = &mut self.position as *mut Position;
-            let health = &mut self.health as *mut Health;
-            Box::new([
-                (
-                    ComponentInfo::new::<Position>(),
-                    NonNull::new(position as *mut u8).unwrap(),
-                ),
-                (
-                    ComponentInfo::new::<Health>(),
-                    NonNull::new(health as *mut u8).unwrap(),
-                ),
-            ])
+            let mut position = self.position;
+            f(
+                (&mut position as *mut Position).cast(),
+                ComponentInfo::new::<Position>(),
+            );
+            mem::forget(position);
+            let mut health = self.health;
+            f(
+                (&mut health as *mut Health).cast(),
+                ComponentInfo::new::<Health>(),
+            );
+            mem::forget(health);
         }
 
         fn component_info() -> Vec<ComponentInfo>
@@ -77,7 +78,7 @@ pub mod tests {
     pub fn test() {
         let mut world = World::new(256);
         world.add_archetype::<Player>(256);
-        for i in 0..255 {
+        for _ in 0..255 {
             world
                 .add_entity(Player {
                     position: Position { x: 0.0, y: 0.0 },
@@ -95,7 +96,7 @@ pub mod tests {
             for i in 0..255 {
                 let entity = world.get_entities().get_location(i).unwrap();
                 let index = entity.index;
-                let option = player.get_comp::<(Position, Health)>(index).unwrap();
+                player.get_comp::<(Position, Health)>(index).unwrap();
             }
         }
         println!("Finished in: {}", now.elapsed().as_millis());
@@ -105,7 +106,7 @@ pub mod tests {
     pub fn entities_realloc() {
         let mut world = World::new(256);
         world.add_archetype::<Player>(256);
-        for i in 0..1024 {
+        for _ in 0..1024 {
             if !world.get_entities().entities_left() {
                 world.increase_entities(Some(256)).unwrap();
             }
@@ -132,7 +133,7 @@ pub mod tests {
             for i in 0..1024 {
                 let entity = world.get_entities().get_location(i).unwrap();
                 let index = entity.index;
-                let option = player.get_comp::<(Position, Health)>(index).unwrap();
+                player.get_comp::<(Position, Health)>(index).unwrap();
             }
         }
     }
@@ -141,7 +142,7 @@ pub mod tests {
     pub fn random_delete_an_add() {
         let mut world = World::new(256);
         world.add_archetype::<Player>(256);
-        for i in 0..1024 {
+        for _ in 0..1024 {
             if !world.get_entities().entities_left() {
                 world.increase_entities(Some(256)).unwrap();
             }
@@ -181,7 +182,7 @@ pub mod tests {
 
             assert_eq!(entity.id, random1 as u32);
 
-            if player.get_comp::<(Health)>(id.index).is_err() {
+            if player.get_comp::<Health>(id.index).is_err() {
                 println!(" {:?}", id);
                 println!(" {:?}", entity);
             };

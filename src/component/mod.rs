@@ -2,7 +2,6 @@ use crate::archetypes::ComponentInfo;
 use std::any::TypeId;
 
 use crate::component_ref::{ComponentRef, MutComponentRef};
-use std::ptr::NonNull;
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
@@ -19,7 +18,7 @@ pub trait Component: Send + Sync + 'static {
 
 /// A Trait that can be converted into a Archetype.
 pub trait Bundle {
-    fn into_component_ptrs(self) -> Box<[(ComponentInfo, NonNull<u8>)]>
+    unsafe fn put_self(self, f: impl FnMut(*mut u8, ComponentInfo))
     where
         Self: Sized;
     /// Should be ordered Largest to Smallest

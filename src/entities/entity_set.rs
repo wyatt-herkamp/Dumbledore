@@ -1,4 +1,5 @@
 use crate::entities::entity::{Entity, EntityLocation, EntityMeta};
+use std::collections::VecDeque;
 use std::mem;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -14,7 +15,7 @@ pub struct EntitySetInner {
     // The next available entity ID.
     pub(crate) length: AtomicU32,
     // Entities before the length that are free
-    pub(crate) free_list: Mutex<Vec<usize>>,
+    pub(crate) free_list: Mutex<VecDeque<usize>>,
 
     pub(crate) locked: AtomicBool,
 }
@@ -28,7 +29,7 @@ impl EntitySetInner {
         Self {
             entities: entities.into_boxed_slice(),
             length: AtomicU32::new(0),
-            free_list: Mutex::new(Vec::new()),
+            free_list: Mutex::new(VecDeque::new()),
             locked: Default::default(),
         }
     }
@@ -62,7 +63,7 @@ impl EntitySet {
         if !self.entities_left() {
             panic!("Too many entities in the world!");
         }
-        let id = if let Some(pop) = self.0.free_list.lock().unwrap().pop() {
+        let id = if let Some(pop) = self.0.free_list.lock().unwrap().pop_front() {
             pop
         } else {
             self.0.length.fetch_add(1, Ordering::Relaxed) as usize
@@ -91,7 +92,7 @@ impl EntitySet {
         let old_location = mem::take(&mut guard.location);
         guard.generation = NonZeroU32::new(guard.generation.get() + 1).unwrap();
         guard.in_use = false;
-        self.0.free_list.lock().unwrap().push(i);
+        self.0.free_list.lock().unwrap().push_back(i);
         Some(old_location)
     }
     pub fn get_location(&self, entity: u32) -> Option<EntityLocation> {

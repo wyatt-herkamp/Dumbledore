@@ -1,11 +1,11 @@
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{ quote};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use syn::parse::ParseStream;
 use syn::{DataStruct, DeriveInput, LitBool, LitInt, Result};
-use syn::{Fields, Ident};
+use syn::{Fields};
 
 mod bundle_attrs {
     syn::custom_keyword!(id);
@@ -69,7 +69,8 @@ pub(crate) fn process_bundle(input: DeriveInput, en: DataStruct) -> Result<Token
 
                 comp_refs.push(quote! {
                     let #ident = &mut self.#ident as *mut #typ;
-                    components.push((dumbledore::archetypes::ComponentInfo::new::<#typ>(),std::ptr::NonNull::new_unchecked(#ident as *mut u8)));
+                    f(#ident.cast(),dumbledore::archetypes::ComponentInfo::new::<#typ>());
+                    std::mem::forget(self.#ident);
                 }
                 );
             });
@@ -91,7 +92,6 @@ pub(crate) fn process_bundle(input: DeriveInput, en: DataStruct) -> Result<Token
         ident.to_string().hash(&mut hasher);
         hasher.finish() as u32
     });
-    let size = components.len();
     if let Some(value) = generate_lookup {
         if value {
             println!("TODO: generate lookup for {}", ident);
@@ -100,14 +100,12 @@ pub(crate) fn process_bundle(input: DeriveInput, en: DataStruct) -> Result<Token
     }
     Ok(quote! {
         impl dumbledore::component::Bundle for #ident {
-            fn into_component_ptrs(mut self) -> Box<[(dumbledore::archetypes::ComponentInfo, std::ptr::NonNull<u8>)]>
-                where Self: Sized {
-                let mut components = Vec::with_capacity(#size);
-                unsafe{
-                    #(#comp_refs)*
-                }
-                return components.into_boxed_slice();
-            }
+            unsafe fn put_self(mut self, mut f: impl FnMut(*mut u8, dumbledore::archetypes::ComponentInfo)) where Self: Sized {
+                #(
+                    #comp_refs
+                )*
+             }
+
             fn component_info() -> Vec<dumbledore::archetypes::ComponentInfo>  where Self: Sized {
                 vec![#(dumbledore::archetypes::ComponentInfo::new::<#components>()),*]
             }

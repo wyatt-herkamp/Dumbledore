@@ -22,5 +22,6 @@ pub fn component(stream: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ident = input.ident;
     (quote! {
         impl Component for #ident {}
-    }).into()
+    })
+    .into()
 }

@@ -1,6 +1,5 @@
 use dumbledore::component::Component;
 use dumbledore::{world, Bundle};
-use std::ptr::NonNull;
 
 #[derive(Debug, Clone)]
 pub struct Position {
@@ -27,7 +26,7 @@ pub struct Player {
 fn main() {
     let mut world = world::World::new(256);
     world.add_archetype::<Player>(256);
-    for i in 0..255 {
+    for _ in 0..255 {
         world
             .add_entity(Player {
                 position: Position { x: 0.0, y: 0.0 },
@@ -45,7 +44,7 @@ fn main() {
         for i in 0..255 {
             let (entity, location) = world.get_entities().get_entity(i).unwrap();
             let index = location.index;
-            let option = player.get_comp::<(Position, Health)>(index).unwrap();
+            player.get_comp::<(Position, Health)>(index).unwrap();
         }
     }
     println!("Finished in: {}", now.elapsed().as_millis());

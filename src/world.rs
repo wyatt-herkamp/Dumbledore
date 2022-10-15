@@ -105,7 +105,7 @@ impl World {
             return Err(WorldError::TooManyEntitiesInArchetype);
         }
         let entity = self.entities.alloc();
-        let data = archetype.add_entity(entity.id, bundle.into_component_ptrs().iter());
+        let data = archetype.add_entity(entity.id, bundle);
         self.entities.push_location(
             &entity,
             EntityLocation {
