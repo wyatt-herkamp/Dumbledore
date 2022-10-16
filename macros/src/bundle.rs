@@ -1,11 +1,11 @@
 use proc_macro2::TokenStream;
-use quote::{ quote};
+use quote::quote;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use syn::parse::ParseStream;
+use syn::Fields;
 use syn::{DataStruct, DeriveInput, LitBool, LitInt, Result};
-use syn::{Fields};
 
 mod bundle_attrs {
     syn::custom_keyword!(id);
@@ -71,8 +71,7 @@ pub(crate) fn process_bundle(input: DeriveInput, en: DataStruct) -> Result<Token
                     let #ident = &mut self.#ident as *mut #typ;
                     f(#ident.cast(),dumbledore::archetypes::ComponentInfo::new::<#typ>());
                     std::mem::forget(self.#ident);
-                }
-                );
+                });
             });
         }
         Fields::Unnamed(not_named) => {
@@ -105,10 +104,10 @@ pub(crate) fn process_bundle(input: DeriveInput, en: DataStruct) -> Result<Token
                     #comp_refs
                 )*
              }
-
             fn component_info() -> Vec<dumbledore::archetypes::ComponentInfo>  where Self: Sized {
                 vec![#(dumbledore::archetypes::ComponentInfo::new::<#components>()),*]
             }
+            #[inline(always)]
             fn archetype_id() -> u32
                 where Self: Sized {
                #id
