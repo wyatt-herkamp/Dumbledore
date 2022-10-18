@@ -1,5 +1,5 @@
 use crate::archetypes::arche::{Archetype, ArchetypeInner};
-use crate::component::Bundle;
+use crate::component::{Bundle, ComponentLookup};
 use crate::entities::entity::{Entity, EntityLocation};
 use crate::entities::entity_set::{EntitySet, EntitySetInner};
 use std::collections::BTreeMap;
@@ -50,6 +50,7 @@ impl World {
     pub fn get_archetype<B: Bundle>(&self) -> Option<&Archetype> {
         self.archetypes.get(&B::archetype_id())
     }
+
     /// Pushes an Archetype to the World.
     ///
     /// This us done after the Archetype has been reallocated.

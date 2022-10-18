@@ -137,9 +137,8 @@ impl Archetype {
                         )
                     })
                     .unwrap();
-                    let x = ptr.add(offset as usize);
-                    ptr::copy(data, x, info.layout.size());
-
+                let x = ptr.add(offset as usize);
+                ptr::copy(data, x, info.layout.size());
             });
         }
 
@@ -193,15 +192,15 @@ impl Archetype {
         let data = unsafe {
             T::return_mut(|typ| {
                 if let Some((offset, index)) = self.0.component_offsets.get(typ) {
-                    let anti_racey_byte = &data.anti_racey_bytes[*index as usize];
-                    let v = anti_racey_byte.compare_exchange(
+                    let anti_race_byte = &data.anti_racey_bytes[*index as usize];
+                    let v = anti_race_byte.compare_exchange(
                         0,
                         255,
                         Ordering::Relaxed,
                         Ordering::Relaxed,
                     );
                     if v.is_ok() {
-                        Some((anti_racey_byte.clone(), ptr.add(*offset)))
+                        Some((anti_race_byte.clone(), ptr.add(*offset)))
                     } else {
                         None
                     }

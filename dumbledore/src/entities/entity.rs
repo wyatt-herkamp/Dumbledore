@@ -1,10 +1,11 @@
 use std::num::NonZeroU32;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Entity {
     pub(crate) generation: NonZeroU32,
     pub id: u32,
 }
+
 impl From<u32> for Entity {
     fn from(id: u32) -> Self {
         Entity {
@@ -13,12 +14,14 @@ impl From<u32> for Entity {
         }
     }
 }
+
 impl Into<u32> for Entity {
     fn into(self) -> u32 {
         self.id
     }
 }
-#[derive(Clone, Debug)]
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct EntityMeta {
     pub(crate) generation: NonZeroU32,
     pub in_use: bool,
@@ -35,7 +38,7 @@ impl Default for EntityMeta {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct EntityLocation {
     // Archetype ID - Will rarely change.
     pub archetype: u32,
